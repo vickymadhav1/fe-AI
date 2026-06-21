@@ -268,23 +268,27 @@ app.whenReady().then(async () => {
   createWindow()
 
   ipcMain.handle('floating:get-latest', () => latestResult)
-  ipcMain.handle('capture:list-sources', async () => {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 360, height: 220 },
-      fetchWindowIcons: true,
-    })
+ ipcMain.handle('capture:list-sources', async () => {
+  console.log('capture:list-sources CALLED')
 
-    return sources
-      .filter((source) => !internalSourcePattern.test(source.name))
-      .sort((a, b) => sourceRank(a.name) - sourceRank(b.name))
-      .map((source) => ({
-        id: source.id,
-        name: source.name,
-        displayId: source.display_id,
-        thumbnailDataUrl: source.thumbnail.isEmpty() ? '' : source.thumbnail.toDataURL(),
-      }))
+  const sources = await desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 360, height: 220 },
+    fetchWindowIcons: true,
   })
+
+  console.log('SOURCE COUNT', sources.length)
+
+  return sources
+    .filter((source) => !internalSourcePattern.test(source.name))
+    .sort((a, b) => sourceRank(a.name) - sourceRank(b.name))
+    .map((source) => ({
+      id: source.id,
+      name: source.name,
+      displayId: source.display_id,
+      thumbnailDataUrl: source.thumbnail.isEmpty() ? '' : source.thumbnail.toDataURL(),
+    }))
+})
   ipcMain.handle(
     'capture:save-debug',
     async (_event, bytes: Uint8Array, width: number, height: number) => {

@@ -12,6 +12,21 @@ let floatingWindow = null;
 let latestResult = null;
 let powerSaveBlockerId = null;
 let isQuitting = false;
+const internalSourcePattern = /interview mate(?: ai)?/i;
+const sourcePreference = [
+    /^entire screen$/i,
+    /^screen\s*\d*/i,
+    /chrome/i,
+    /visual studio code|vs code/i,
+    /cursor/i,
+    /stackblitz/i,
+    /leetcode/i,
+    /hackerrank/i,
+];
+const sourceRank = (name) => {
+    const index = sourcePreference.findIndex((pattern) => pattern.test(name));
+    return index === -1 ? sourcePreference.length : index;
+};
 const cachePath = () => path.join(app.getPath('userData'), 'latest-result.json');
 const debugCapturePath = () => isDevelopment
     ? path.resolve(__dirname, '../debug/latest-capture.png')
@@ -187,10 +202,13 @@ app.whenReady().then(async () => {
     // Electron resolves getDisplayMedia through this handler and includes loopback audio
     // when the operating system supports system-audio capture.
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
-        const [source] = await desktopCapturer.getSources({
+        const sources = await desktopCapturer.getSources({
             types: ['screen', 'window'],
             thumbnailSize: { width: 0, height: 0 },
         });
+        const source = sources
+            .filter((item) => !internalSourcePattern.test(item.name))
+            .sort((a, b) => sourceRank(a.name) - sourceRank(b.name))[0];
         callback({
             video: source,
             audio: process.platform === 'win32' ? 'loopback' : undefined,
@@ -198,6 +216,24 @@ app.whenReady().then(async () => {
     }, { useSystemPicker: true });
     createWindow();
     ipcMain.handle('floating:get-latest', () => latestResult);
+    ipcMain.handle('capture:list-sources', async () => {
+        console.log('capture:list-sources CALLED');
+        const sources = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 360, height: 220 },
+            fetchWindowIcons: true,
+        });
+        console.log('SOURCE COUNT', sources.length);
+        return sources
+            .filter((source) => !internalSourcePattern.test(source.name))
+            .sort((a, b) => sourceRank(a.name) - sourceRank(b.name))
+            .map((source) => ({
+            id: source.id,
+            name: source.name,
+            displayId: source.display_id,
+            thumbnailDataUrl: source.thumbnail.isEmpty() ? '' : source.thumbnail.toDataURL(),
+        }));
+    });
     ipcMain.handle('capture:save-debug', async (_event, bytes, width, height) => {
         const filePath = debugCapturePath();
         await mkdir(path.dirname(filePath), { recursive: true });
