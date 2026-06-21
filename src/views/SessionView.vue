@@ -9,7 +9,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { audioCaptureService } from '@/services/audio.service'
 import { api } from '@/services/api'
-import { screenAnalyzerService, type CaptureFrame } from '@/services/screen-analyzer.service'
+import { screenAnalyzerService, type CaptureFrame, type CaptureSource } from '@/services/screen-analyzer.service'
 import { getSocket } from '@/services/socket'
 import { speechService } from '@/services/speech/speech.service'
 import { isElectronRuntime } from '@/services/runtime'
@@ -39,6 +39,11 @@ const transcriptPanel = ref<HTMLElement | null>(null)
 const isNew = computed(() => route.params.id === 'new')
 const latestSuggestion = computed(() => assistantStore.suggestions.at(-1) ?? null)
 const activeRequests = new Set<AbortController>()
+
+// Source picker state
+const showSourcePicker = ref(false)
+const availableSources = ref<CaptureSource[]>([])
+
 let lifecycleId = 0
 let screenAnalysisQueue = Promise.resolve()
 let audioUploadQueue = Promise.resolve()
@@ -156,7 +161,7 @@ const handleCaptureFrame = (frame: CaptureFrame) => {
   const sessionId = sessionStore.activeSession?.id
   const runId = lifecycleId
   if (!sessionId || !isRunning.value) return
-
+console.log('ANALYZE_SCREEN_CALLED')
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
   screenshotPreviewUrl = URL.createObjectURL(frame.image)
   sessionStore.updateScreenshotPreview(screenshotPreviewUrl, frame.capturedAt)
@@ -170,8 +175,6 @@ const handleCaptureFrame = (frame: CaptureFrame) => {
     likelyTechnical: frame.likelyTechnical,
   })
 
-  // Plain-text coding prompts may not resemble a code editor visually. OCR all
-  // changed, nonblank frames so imperative tasks can activate without speech.
   if (frame.blank || !frame.changed) return
 
   screenAnalysisQueue = screenAnalysisQueue.then(async () => {
@@ -181,7 +184,13 @@ const handleCaptureFrame = (frame: CaptureFrame) => {
     analyzingScreen.value = true
     try {
       console.info('[ScreenAnalysis] OCR and code detection requested')
-      await api.analyzeScreen(sessionId, frame.image, controller.signal)
+      await api.analyzeScreen(
+  sessionId,
+  frame.image,
+  frame.sourceId,
+  frame.sourceName,
+  controller.signal,
+)
       console.info('[ScreenAnalysis] OCR, code detection, and AI prompt completed')
     } catch (error) {
       if (controller.signal.aborted) return
@@ -201,13 +210,91 @@ const handleCaptureFrame = (frame: CaptureFrame) => {
   })
 }
 
-const startScreenCapture = async (): Promise<MediaStream | null> => {
+// Called when user picks a source from the picker modal
+const pickSource = async (source: CaptureSource) => {
+  showSourcePicker.value = false
+  try {
+    await screenAnalyzerService.start(source, handleCaptureFrame, () => {
+      sessionStore.setScreenSharing(false)
+      uiStore.pushToast({ type: 'info', title: 'Screen share ended' })
+    })
+    sessionStore.setScreenSharing(true)
+    console.info('[Interview] screen capture active via source picker', source.name)
+  } catch (error) {
+    sessionStore.setScreenSharing(false)
+    console.warn('[Interview] screen capture failed after source selection', error)
+    uiStore.pushToast({
+      type: 'info',
+      title: 'Audio-only mode',
+      description: 'Screen capture could not start. Listening will continue normally.',
+    })
+  }
+}
+
+const startScreenCapture = async (): Promise<void> => {
   try {
     console.info('[Interview] requesting screen capture')
-    const stream = await screenAnalyzerService.start(handleCaptureFrame)
-    sessionStore.setScreenSharing(true)
-    console.info('[Interview] screen capture active')
-    return stream
+
+   if (isElectronRuntime()) {
+  console.info('[Interview] requesting capture sources')
+
+  try {
+    const sources = await screenAnalyzerService.listSources()
+
+    console.info('[Interview] source count:', sources.length)
+    console.table(
+      sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        displayId: s.displayId,
+      })),
+    )
+
+    if (!sources.length) {
+      console.error('[Interview] capture:list-sources returned 0 sources')
+
+      uiStore.pushToast({
+        type: 'info',
+        title: 'No screens found',
+        description:
+          'Electron returned zero capture sources. Check preload and IPC wiring.',
+      })
+
+      return
+    }
+
+    availableSources.value = sources
+    showSourcePicker.value = true
+
+    console.info('[Interview] source picker opened')
+
+    return
+  } catch (error) {
+    console.error('[Interview] listSources failed', error)
+
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Screen source discovery failed',
+      description: String(error),
+    })
+
+    return
+  }
+}
+
+    // Browser fallback: use background capture via getDisplayMedia
+    const started = await screenAnalyzerService.startBackground(handleCaptureFrame)
+    if (started) {
+      sessionStore.setScreenSharing(true)
+      console.info('[Interview] background screen capture active')
+    } else {
+      console.warn('[Interview] background screen capture unavailable')
+      uiStore.pushToast({
+        type: 'info',
+        title: 'Audio-only mode',
+        description: 'Screen access was not granted. Listening will continue normally.',
+      })
+    }
   } catch (error) {
     sessionStore.setScreenSharing(false)
     console.warn('[Interview] screen capture unavailable; continuing audio-only', error)
@@ -216,7 +303,6 @@ const startScreenCapture = async (): Promise<MediaStream | null> => {
       title: 'Audio-only mode',
       description: 'Screen access was not granted. Listening will continue normally.',
     })
-    return null
   }
 }
 
@@ -254,7 +340,7 @@ const uploadAudioChunk = (sessionId: string, audio: Blob, runId: number) => {
   })
 }
 
-const startAudioCapture = async (sharedDisplayStream: MediaStream | null, runId: number) => {
+const startAudioCapture = async (runId: number) => {
   const sessionId = sessionStore.activeSession?.id
   if (!sessionId) throw new Error('Session is not available')
 
@@ -262,7 +348,7 @@ const startAudioCapture = async (sharedDisplayStream: MediaStream | null, runId:
     await audioCaptureService.start(
       true,
       (audio) => uploadAudioChunk(sessionId, audio, runId),
-      sharedDisplayStream,
+      null,
     )
     sessionStore.setListening(true)
     return
@@ -299,6 +385,7 @@ const stopInterviewRuntime = () => {
   assistantStore.generating = false
   analyzingScreen.value = false
   transcribing.value = false
+  showSourcePicker.value = false
   screenAnalysisQueue = Promise.resolve()
   audioUploadQueue = Promise.resolve()
 }
@@ -313,8 +400,10 @@ const startInterview = async () => {
   connectSocket()
 
   try {
-    const displayStream = await startScreenCapture()
-    await startAudioCapture(displayStream, runId)
+    // Start audio capture first (no dependency on screen)
+    await startAudioCapture(runId)
+    // Then start screen capture (shows picker in Electron, background in browser)
+    await startScreenCapture()
     uiStore.pushToast({ type: 'success', title: 'Interview started' })
   } catch (error) {
     console.error('[Interview] startup failed', error)
@@ -600,5 +689,46 @@ onBeforeUnmount(() => {
         {{ endingSession ? 'Ending...' : 'End Session' }}
       </button>
     </section>
+
+    <!-- Source picker modal (Electron only) -->
+    <div
+      v-if="showSourcePicker"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      @click.self="showSourcePicker = false"
+    >
+      <div class="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <h3 class="text-lg font-bold">Select a screen or window to share</h3>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Interview Mate AI will capture this source to detect questions and code.</p>
+
+        <div class="mt-5 grid max-h-[420px] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
+          <button
+            v-for="src in availableSources"
+            :key="src.id"
+            class="flex flex-col items-center gap-2 rounded-lg border border-slate-200 p-3 text-left transition hover:border-cyan-500 hover:shadow-md dark:border-slate-700 dark:hover:border-cyan-500"
+            @click="pickSource(src)"
+          >
+            <div class="h-24 w-full overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
+              <img
+                v-if="src.thumbnailDataUrl"
+                :src="src.thumbnailDataUrl"
+                :alt="src.name"
+                class="h-full w-full object-cover"
+              />
+              <div v-else class="flex h-full items-center justify-center text-xs text-slate-400">No preview</div>
+            </div>
+            <span class="w-full truncate text-center text-xs font-semibold text-slate-700 dark:text-slate-200">{{ src.name }}</span>
+          </button>
+        </div>
+
+        <div class="mt-5 flex justify-end">
+          <button
+            class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            @click="showSourcePicker = false"
+          >
+            Cancel — continue audio only
+          </button>
+        </div>
+      </div>
+    </div>
   </main>
 </template>

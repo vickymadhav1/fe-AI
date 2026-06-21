@@ -188,8 +188,8 @@ class ScreenAnalyzerService {
           changed,
           blank,
           likelyTechnical: true,
-          sourceName: 'Shared screen',
           sourceName: source.name,
+          // sourceName: source.name,
           sourceId: source.id,
         })
       }, 'image/png')

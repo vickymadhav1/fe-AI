@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
     isElectron: true,
     platform: process.platform,
     capture: {
+        listSources: () => ipcRenderer.invoke('capture:list-sources'),
         saveDebug: (bytes, width, height) => ipcRenderer.invoke('capture:save-debug', bytes, width, height),
         getVisibleScreen: () => ipcRenderer.invoke('capture:get-visible-screen'),
     },

@@ -151,20 +151,33 @@ export const api = {
       })
     ).data.data
   },
-  analyzeScreen: async (sessionId: string, image: Blob, signal?: AbortSignal) => {
-    const form = new FormData()
-    form.append('sessionId', sessionId)
-    form.append('image', image, `screen-${Date.now()}.png`)
-    return (
-      await apiClient.post<{
-        data: {
-          context: ScreenContext
-          detectedQuestion: string
-          suggestion: Suggestion | null
-        }
-      }>('/screens/analyze', form, { timeout: 45_000, signal })
-    ).data.data
-  },
+  analyzeScreen: async (
+  sessionId: string,
+  image: Blob,
+  sourceId: string,
+  sourceName: string,
+  signal?: AbortSignal,
+) => {
+  const form = new FormData()
+
+  form.append('sessionId', sessionId)
+  form.append('sourceId', sourceId)
+  form.append('sourceName', sourceName)
+  form.append('image', image, `screen-${Date.now()}.png`)
+
+  return (
+    await apiClient.post<{
+      data: {
+        context: ScreenContext
+        detectedQuestion: string
+        suggestion: Suggestion | null
+      }
+    }>('/screens/analyze', form, {
+      timeout: 45_000,
+      signal,
+    })
+  ).data.data
+},
   storeTextContext: async (
     sessionId: string,
     source: 'editor' | 'clipboard',
