@@ -1,0 +1,47 @@
+{
+  "name": "interview-mate-ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:desktop": "concurrently -k \"vite --host localhost\" \"wait-on http://localhost:5173 && electron . --dev\"",
+    "build": "run-p type-check \"build-only {@}\" --",
+    "build:desktop": "npm run build && node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",
+    "desktop": "electron .",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build"
+  },
+  "dependencies": {
+    "@heroicons/vue": "^2.2.0",
+    "axios": "^1.13.2",
+    "firebase": "^12.15.0",
+    "highlight.js": "^11.11.1",
+    "pinia": "^3.0.4",
+    "socket.io-client": "^4.8.1",
+    "vue": "^3.5.38",
+    "vue-router": "^4.6.4",
+    "vue3-google-login": "^2.1.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "^24.13.2",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/tsconfig": "^0.9.1",
+    "concurrently": "^9.2.1",
+    "electron": "^40.8.0",
+    "npm-run-all2": "^9.0.2",
+    "tailwindcss": "^4.3.1",
+    "typescript": "~6.0.0",
+    "vite": "^8.0.16",
+    "vite-plugin-vue-devtools": "^8.1.2",
+    "vue-tsc": "^3.3.5",
+    "wait-on": "^9.0.3"
+  },
+  "engines": {
+    "node": "^22.18.0 || >=24.12.0"
+  }
+}

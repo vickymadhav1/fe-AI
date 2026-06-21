@@ -1,0 +1,156 @@
+export type ThemeMode = 'light' | 'dark'
+
+export type InterviewStatus = 'scheduled' | 'completed' | 'draft' | 'cancelled'
+
+export type InterviewType = 'Technical' | 'HR' | 'Managerial' | 'System Design' | 'Mock'
+
+export interface User {
+  id: string
+  firebaseUid?: string
+  name: string | null
+  email: string
+  photo?: string | null
+  credits?: number
+  createdAt?: string
+  updatedAt?: string
+  role?: string
+  avatarUrl?: string
+}
+
+export interface Credits {
+  remaining: number
+  used: number
+  monthlyLimit: number
+}
+
+export interface Interview {
+  id: string
+  company: string
+  role: string
+  date: string
+  time: string
+  duration: number
+  type: InterviewType
+  meetingLink: string
+  resumeName: string
+  jobDescriptionName: string
+  jobDescription: string
+  status: InterviewStatus
+  score?: number
+}
+
+export interface ChatMessage {
+  id: string
+  interviewId: string
+  role: 'candidate' | 'assistant'
+  content: string
+  createdAt: string
+}
+
+export interface AiSuggestion {
+  id: string
+  interviewId: string
+  title: string
+  content: string
+  confidence: number
+}
+
+export interface CreateInterviewPayload {
+  company: string
+  role: string
+  date: string
+  time: string
+  duration: number
+  type: InterviewType
+  meetingLink: string
+  resumeName: string
+  jobDescriptionName: string
+  jobDescription: string
+}
+
+export interface ToastMessage {
+  id: string
+  title: string
+  description?: string
+  type: 'success' | 'error' | 'info'
+}
+
+export interface InterviewSession {
+  id: string
+  userId: string
+  title: string | null
+  company: string | null
+  role: string | null
+  status: 'active' | 'completed'
+  startedAt: string
+  endedAt: string | null
+  createdAt: string
+  updatedAt: string
+  transcripts?: Transcript[]
+  suggestions?: Suggestion[]
+  screenContexts?: ScreenContext[]
+  _count?: { transcripts: number; suggestions: number }
+}
+
+export interface Transcript {
+  id: string
+  sessionId: string
+  speaker: 'interviewer' | 'candidate' | 'system'
+  text: string
+  createdAt: string
+}
+
+export interface Suggestion {
+  id: string
+  sessionId: string
+  question: string
+  answer: string
+  provider?: string
+  type: 'THEORY' | 'CODING' | 'CODING_PROMPT' | 'SYNTAX' | 'DEBUGGING' | 'SYSTEM_DESIGN' | 'SQL' | 'BEHAVIORAL' | 'OUTPUT' | 'OPTIMIZATION'
+  code: string | null
+  output: string | null
+  language: string | null
+  complexity: string | null
+  rootCause: string | null
+  fix: string | null
+  analysisMode: 'GENERAL' | 'OUTPUT' | 'BUG_FIX' | 'OPTIMIZATION' | 'LINE_BY_LINE'
+  keyPoints: string[]
+  confidence: number
+  promptDebug: string
+  createdAt: string
+}
+
+export interface ScreenContext {
+  id: string
+  sessionId: string
+  source: 'screen' | 'editor' | 'clipboard'
+  content: string
+  rawOcrText: string
+  ocrConfidence: number
+  captureStatus: 'working' | 'failed'
+  ocrStatus: 'pending' | 'working' | 'failed'
+  code: string
+  language: string
+  terminalOutput: string
+  errors: string
+  detectedQuestion: string
+  codeDetected: boolean
+  screenshotBytes?: number
+  ocrCharacterCount?: number
+  languageConfidence?: number
+  createdAt: string
+}
+
+export type AiProviderStatus = 'healthy' | 'invalid_key' | 'rate_limited' | 'offline' | 'disabled'
+
+export interface AiProviderHealth {
+  name: 'groq' | 'gemini' | 'openrouter' | 'together' | 'huggingface'
+  configured: boolean
+  status: AiProviderStatus
+  lastError: string | null
+  lastCheckedAt: string | null
+  requestCount: number
+  successCount: number
+  failureCount: number
+  disabledForMs: number
+}
