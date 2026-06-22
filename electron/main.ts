@@ -37,6 +37,7 @@ interface FloatingResult {
   screenStatus?: string
   lastCapture?: string
   timestamp: string
+  screenshotPreviewUrl?: string
 }
 
 const internalSourcePattern = /interview mate(?: ai)?/i
@@ -188,6 +189,7 @@ const startCompanion = () => {
     screenStatus: 'No Screen Data',
     lastCapture: '',
     timestamp: new Date().toISOString(),
+    screenshotPreviewUrl:''
   }
   if (!floatingWindow) {
     const window = createFloatingWindow()

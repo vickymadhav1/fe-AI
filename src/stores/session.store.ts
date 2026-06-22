@@ -150,6 +150,7 @@ export const useSessionStore = defineStore('sessions', {
       this.provider = result.provider ?? ''
       this.screenStatus = result.screenStatus ?? this.screenStatus
       this.lastCapture = result.lastCapture ?? this.lastCapture
+       this.screenshotPreviewUrl = result.screenshotPreviewUrl ?? this.screenshotPreviewUrl
     },
     stopInterview() {
       this.isRunning = false

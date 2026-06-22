@@ -91,6 +91,7 @@ interface FloatingResult {
   screenStatus?: string
   lastCapture?: string
   timestamp: string
+  screenshotPreviewUrl?: string
 }
 
 interface ImportMeta {

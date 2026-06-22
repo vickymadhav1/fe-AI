@@ -66,6 +66,7 @@ const publishCompanionResult = (suggestion: Suggestion) => {
     provider: suggestion.provider ?? '',
     screenStatus: sessionStore.screenStatus,
     lastCapture: sessionStore.lastCapture,
+    screenshotPreviewUrl: sessionStore.screenshotPreviewUrl??'',
     timestamp: new Date().toISOString(),
   })
 }
