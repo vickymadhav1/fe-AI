@@ -75,7 +75,7 @@ onMounted(() => void loadProviderHealth())
       </div>
 
       <div class="mt-6 overflow-x-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
+        <table class="w-full min-w-720px text-left text-sm">
           <thead class="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-slate-800">
             <tr><th class="py-3">Provider</th><th>Status</th><th>Requests</th><th>Success</th><th>Failures</th><th>Last checked</th></tr>
           </thead>

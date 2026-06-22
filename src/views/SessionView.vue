@@ -481,14 +481,14 @@ onBeforeUnmount(() => {
     </button>
   </form>
 
-  <div v-else-if="sessionStore.loading && !sessionStore.activeSession" class="flex min-h-[480px] items-center justify-center">
+  <div v-else-if="sessionStore.loading && !sessionStore.activeSession" class="flex min-h-480px items-center justify-center">
     <div class="text-center">
       <ArrowPathIcon class="mx-auto h-8 w-8 animate-spin text-cyan-500" />
       <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Loading live session...</p>
     </div>
   </div>
 
-  <main v-else-if="sessionStore.activeSession" class="flex h-[calc(100vh-8rem)] min-h-[680px] flex-col gap-5">
+  <main v-else-if="sessionStore.activeSession" class="flex h-[calc(100vh-8rem)] min-h-680px flex-col gap-5">
     <section class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
       <div>
         <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Workspace</p>
@@ -576,7 +576,7 @@ onBeforeUnmount(() => {
             AI is preparing a context-aware answer...
           </div>
 
-          <div v-if="!latestSuggestion" class="flex h-full min-h-[360px] items-center justify-center text-center text-slate-500 dark:text-slate-400">
+          <div v-if="!latestSuggestion" class="flex h-full min-h-360px items-center justify-center text-center text-slate-500 dark:text-slate-400">
             Suggestions appear automatically when a question, visible code, or coding prompt is detected.
           </div>
 
@@ -632,9 +632,9 @@ onBeforeUnmount(() => {
                   {{ latestSuggestion.type }}
                 </span>
               </div>
-              <pre class="max-h-[560px] overflow-auto whitespace-pre rounded-lg bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100">{{ latestSuggestion.code || latestSuggestion.fix }}</pre>
+              <pre class="max-h-560px overflow-auto whitespace-pre rounded-lg bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100">{{ latestSuggestion.code || latestSuggestion.fix }}</pre>
             </section>
-            <div v-else class="flex h-full min-h-[360px] items-center justify-center text-center text-slate-500 dark:text-slate-400">
+            <div v-else class="flex h-full min-h-360px items-center justify-center text-center text-slate-500 dark:text-slate-400">
               No generated code is needed for this answer.
             </div>
           </template>
@@ -660,7 +660,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div class="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
-                <img v-if="sessionStore.screenshotPreviewUrl" :src="sessionStore.screenshotPreviewUrl" alt="Latest captured interview screen" class="max-h-[430px] w-full object-contain" />
+                <img v-if="sessionStore.screenshotPreviewUrl" :src="sessionStore.screenshotPreviewUrl" alt="Latest captured interview screen" class="max-h-430px w-full object-contain" />
                 <div v-else class="flex min-h-72 items-center justify-center text-slate-500">Screenshot preview appears after screen capture starts.</div>
               </div>
             </section>
@@ -700,7 +700,7 @@ onBeforeUnmount(() => {
         <h3 class="text-lg font-bold">Select a screen or window to share</h3>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Interview Mate AI will capture this source to detect questions and code.</p>
 
-        <div class="mt-5 grid max-h-[420px] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
+        <div class="mt-5 grid max-h-420px grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
           <button
             v-for="src in availableSources"
             :key="src.id"

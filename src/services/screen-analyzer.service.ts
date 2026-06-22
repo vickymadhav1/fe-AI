@@ -55,6 +55,8 @@ class ScreenAnalyzerService {
   }
 
   async startBackground(onFrame: (frame: CaptureFrame) => void): Promise<boolean> {
+    console.log('[CAPTURE MODE] startBackground');
+    
     if (!window.interviewMateDesktop?.capture.getVisibleScreen) return false
     this.stop()
     this.backgroundCaptureRunning = true
@@ -121,6 +123,10 @@ class ScreenAnalyzerService {
     onFrame: (frame: CaptureFrame) => void,
     onUnavailable?: () => void,
   ): Promise<MediaStream> {
+    console.log('[CAPTURE MODE] start', {
+    sourceName: source.name,
+    sourceId: source.id,
+  })
     if (/interview mate(?: ai)?/i.test(source.name)) {
       throw new Error('Interview Mate windows cannot be captured')
     }
