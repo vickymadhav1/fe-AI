@@ -6,6 +6,7 @@ import HistoryView from '../views/HistoryView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import SessionView from '../views/SessionView.vue'
 import CompanionView from '../views/CompanionView.vue'
+import InvisibleSubscriptionView from '../views/InvisibleSubscriptionView.vue'
 
 const routes = [
   {
@@ -35,6 +36,12 @@ const routes = [
         name: 'settings',
         component: SettingsView,
         meta: { title: 'Settings', requiresAuth: true },
+      },
+      {
+        path: 'invisible',
+        name: 'invisible',
+        component: InvisibleSubscriptionView,
+        meta: { title: 'Invisible', requiresAuth: true },
       },
     ],
   },

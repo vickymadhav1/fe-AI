@@ -3,6 +3,7 @@ import {
   BellIcon,
   ClockIcon,
   Cog6ToothIcon,
+  EyeSlashIcon,
   MicrophoneIcon,
   MoonIcon,
   ArrowRightStartOnRectangleIcon,
@@ -24,6 +25,7 @@ const uiStore = useUiStore()
 const navItems = [
   { label: 'Live Session', to: '/sessions/new', icon: MicrophoneIcon },
   { label: 'History', to: '/history', icon: ClockIcon },
+  { label: 'Invisible', to: '/invisible', icon: EyeSlashIcon },
   { label: 'Settings', to: '/settings', icon: Cog6ToothIcon },
 ]
 
@@ -113,7 +115,7 @@ const logout = async () => {
           </div>
         </div>
 
-        <nav class="mt-4 grid grid-cols-3 gap-2 lg:hidden">
+        <nav class="mt-4 grid grid-cols-4 gap-2 lg:hidden">
           <RouterLink
             v-for="item in navItems"
             :key="item.to"

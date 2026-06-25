@@ -1,18 +1,31 @@
 import { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, powerSaveBlocker, screen, session, systemPreferences, } from 'electron';
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDevelopment = process.argv.includes('--dev');
 const desktopPort = 47831;
+const execFileAsync = promisify(execFile);
 let staticServer = null;
 let mainWindow = null;
 let floatingWindow = null;
 let latestResult = null;
 let powerSaveBlockerId = null;
 let isQuitting = false;
+let invisibleProtectionEnabled = false;
 const internalSourcePattern = /interview mate(?: ai)?/i;
+const meetingAppPatterns = [
+    { name: 'Microsoft Teams', pattern: /microsoft teams|teams/i },
+    { name: 'Zoom', pattern: /\bzoom\b|zoom meeting/i },
+    { name: 'Google Meet', pattern: /google meet|meet\.google|meet -/i },
+    { name: 'Cisco Webex', pattern: /webex|cisco webex/i },
+    { name: 'Slack Huddles', pattern: /slack|huddle/i },
+    { name: 'Discord', pattern: /discord/i },
+    { name: 'Skype', pattern: /skype/i },
+];
 const sourcePreference = [
     /^entire screen$/i,
     /^screen\s*\d*/i,
@@ -26,6 +39,56 @@ const sourcePreference = [
 const sourceRank = (name) => {
     const index = sourcePreference.findIndex((pattern) => pattern.test(name));
     return index === -1 ? sourcePreference.length : index;
+};
+const detectMeetingApp = (value) => {
+    return meetingAppPatterns.find(({ pattern }) => pattern.test(value))?.name ?? '';
+};
+const detectMacActiveWindow = async () => {
+    const script = [
+        'tell application "System Events"',
+        'set frontApp to name of first application process whose frontmost is true',
+        'set windowTitle to ""',
+        'try',
+        'set windowTitle to name of front window of first application process whose frontmost is true',
+        'end try',
+        'return frontApp & "\n" & windowTitle',
+        'end tell',
+    ].join('\n');
+    const { stdout } = await execFileAsync('osascript', ['-e', script]);
+    const [appName = '', windowTitle = ''] = stdout.trim().split('\n');
+    const activeWindowTitle = windowTitle || appName;
+    return {
+        activeMeetingApp: detectMeetingApp(`${appName} ${activeWindowTitle}`),
+        activeWindowTitle,
+    };
+};
+const detectCaptureMeetingWindow = async () => {
+    const sources = await desktopCapturer.getSources({
+        types: ['window'],
+        thumbnailSize: { width: 0, height: 0 },
+    });
+    const meetingSource = sources.find((source) => detectMeetingApp(source.name));
+    return {
+        activeMeetingApp: meetingSource ? detectMeetingApp(meetingSource.name) : '',
+        activeWindowTitle: meetingSource?.name ?? '',
+    };
+};
+const detectActiveMeetingWindow = async () => {
+    try {
+        if (process.platform === 'darwin') {
+            const detected = await detectMacActiveWindow();
+            if (detected)
+                return detected;
+        }
+    }
+    catch (error) {
+        console.warn('[Interview] Active window detection failed', error);
+    }
+    return detectCaptureMeetingWindow();
+};
+const applyInvisibleProtection = () => {
+    mainWindow?.setContentProtection(invisibleProtectionEnabled);
+    floatingWindow?.setContentProtection(invisibleProtectionEnabled);
 };
 const cachePath = () => path.join(app.getPath('userData'), 'latest-result.json');
 const debugCapturePath = () => isDevelopment
@@ -121,6 +184,7 @@ const createFloatingWindow = () => {
         },
     });
     floatingWindow.setAlwaysOnTop(true, 'floating');
+    floatingWindow.setContentProtection(invisibleProtectionEnabled);
     void floatingWindow.loadURL(rendererUrl('/companion'));
     floatingWindow.webContents.once('did-finish-load', () => {
         if (latestResult) {
@@ -146,6 +210,7 @@ const startCompanion = () => {
         screenStatus: 'No Screen Data',
         lastCapture: '',
         timestamp: new Date().toISOString(),
+        screenshotPreviewUrl: ''
     };
     if (!floatingWindow) {
         const window = createFloatingWindow();
@@ -160,8 +225,8 @@ const startCompanion = () => {
     floatingWindow.focus();
 };
 const stopCompanion = () => {
-    // The companion is intentionally persistent. Interview controls stop capture,
-    // but they should not hide or minimize the always-on-top answer window.
+    floatingWindow?.close();
+    floatingWindow = null;
 };
 const createWindow = () => {
     const window = new BrowserWindow({
@@ -180,6 +245,7 @@ const createWindow = () => {
         },
     });
     mainWindow = window;
+    window.setContentProtection(invisibleProtectionEnabled);
     if (isDevelopment) {
         void window.loadURL(rendererUrl());
     }
@@ -216,6 +282,19 @@ app.whenReady().then(async () => {
     }, { useSystemPicker: true });
     createWindow();
     ipcMain.handle('floating:get-latest', () => latestResult);
+    ipcMain.handle('meeting:get-active-window', detectActiveMeetingWindow);
+    ipcMain.handle('invisible:set-content-protection', (_event, enabled) => {
+        invisibleProtectionEnabled = enabled;
+        applyInvisibleProtection();
+        console.info(enabled
+            ? '[Invisible] Content Protection Applied'
+            : '[Invisible] Content Protection Removed');
+        return {
+            enabled: invisibleProtectionEnabled,
+            supported: process.platform === 'darwin' || process.platform === 'win32',
+            platform: process.platform,
+        };
+    });
     ipcMain.handle('capture:list-sources', async () => {
         console.log('capture:list-sources CALLED');
         const sources = await desktopCapturer.getSources({

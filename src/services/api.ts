@@ -2,7 +2,7 @@ import axios from 'axios'
 import { computed, ref } from 'vue'
 import { appConfig } from '@/config/app.config'
 import { mockChatHistory, mockCredits, mockInterviews, mockSuggestions } from '@/services/mock-data'
-import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, Interview, InterviewSession, ScreenContext, Suggestion, Transcript, User } from '@/types'
+import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
 
 export const apiClient = axios.create({
   baseURL: appConfig.apiBaseUrl,
@@ -156,6 +156,8 @@ export const api = {
   image: Blob,
   sourceId: string,
   sourceName: string,
+  activeMeetingApp: string,
+  activeWindowTitle: string,
   signal?: AbortSignal,
 ) => {
   const form = new FormData()
@@ -163,6 +165,8 @@ export const api = {
   form.append('sessionId', sessionId)
   form.append('sourceId', sourceId)
   form.append('sourceName', sourceName)
+  form.append('activeMeetingApp', activeMeetingApp)
+  form.append('activeWindowTitle', activeWindowTitle)
   form.append('image', image, `screen-${Date.now()}.png`)
 
   return (
@@ -191,5 +195,45 @@ export const api = {
         source,
         content,
       })
+    ).data.data,
+  getInvisibleSubscription: async () =>
+    (await apiClient.get<{ data: InvisibleSubscription }>('/invisible/subscription')).data.data,
+  createInvisibleOrder: async (planId = 'invisible_starter') =>
+    (
+      await apiClient.post<{ data: InvisibleOrderResponse }>('/invisible/orders', {
+        planId,
+      })
+    ).data.data,
+  verifyInvisiblePayment: async (payload: {
+    razorpayOrderId: string
+    razorpayPaymentId: string
+    razorpaySignature: string
+  }) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/payments/verify',
+        payload,
+      )
+    ).data.data,
+  failInvisiblePayment: async (payload: { razorpayOrderId: string; reason: string }) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/payments/fail',
+        payload,
+      )
+    ).data.data,
+  deductInvisibleCredits: async (minutes = 1) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/credits/deduct',
+        { minutes },
+      )
+    ).data.data,
+  setInvisibleProtection: async (enabled: boolean) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/protection',
+        { enabled },
+      )
     ).data.data,
 }

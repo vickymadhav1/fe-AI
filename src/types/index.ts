@@ -154,3 +154,50 @@ export interface AiProviderHealth {
   failureCount: number
   disabledForMs: number
 }
+
+export type InvisibleSubscriptionStatus =
+  | 'inactive'
+  | 'pending'
+  | 'successful'
+  | 'active'
+  | 'exhausted'
+  | 'failed'
+
+export interface InvisiblePlan {
+  id: string
+  name: string
+  amount: number
+  currency: 'INR'
+  totalCredits: number
+  creditsPerMinute: number
+}
+
+export interface InvisibleSubscription {
+  active: boolean
+  status: InvisibleSubscriptionStatus
+  plan: InvisiblePlan
+  plans: InvisiblePlan[]
+  totalCredits: number
+  remainingCredits: number
+  creditsUsed: number
+  totalMinutes: number
+  remainingMinutes: number
+  creditsPerMinute: number
+  purchaseDate: string | null
+  lastUsedAt: string | null
+  paymentId: string | null
+  orderId: string | null
+}
+
+export interface InvisibleOrderResponse {
+  keyId: string
+  order: {
+    id: string
+    amount: number
+    currency: string
+    receipt: string
+    status: string
+  }
+  plan: InvisiblePlan
+  subscription: InvisibleSubscription
+}

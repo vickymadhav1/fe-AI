@@ -13,6 +13,7 @@ import { screenAnalyzerService, type CaptureFrame, type CaptureSource } from '@/
 import { getSocket } from '@/services/socket'
 import { speechService } from '@/services/speech/speech.service'
 import { isElectronRuntime } from '@/services/runtime'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { useAssistantStore } from '@/stores/assistant.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useTranscriptStore } from '@/stores/transcript.store'
@@ -48,6 +49,8 @@ let lifecycleId = 0
 let screenAnalysisQueue = Promise.resolve()
 let audioUploadQueue = Promise.resolve()
 let screenshotPreviewUrl = ''
+let activeMeetingPollTimer = 0
+let capturePausedForUnsupportedWindow = false
 
 const safeConfidence = (value: unknown) => {
   const confidence = Number(value)
@@ -76,6 +79,8 @@ const removeSocketListeners = () => {
   socket.off('question:detected')
   socket.off('answer:generated')
   socket.off('screen:updated')
+  socket.off('interview:started')
+  socket.off('interview:stopped')
   socket.off('server:error')
 }
 
@@ -110,11 +115,100 @@ const connectSocket = () => {
     const latest = assistantStore.suggestions.at(-1)
     if (latest) publishCompanionResult(latest)
   })
+  socket.on('interview:started', (payload) => {
+    const result = payload as {
+      activeMeetingApp?: string
+      activeWindowTitle?: string
+    }
+    sessionStore.updateActiveMeeting(
+      result.activeMeetingApp ?? sessionStore.activeMeetingApp,
+      result.activeWindowTitle ?? sessionStore.activeWindowTitle,
+    )
+  })
+  socket.on('interview:stopped', () => {
+    console.info('[Interview] Analysis pipeline stopped')
+  })
   socket.on('server:error', ({ message }) => {
     assistantStore.generating = false
     console.warn('[Realtime] server error', message)
   })
 }
+
+const detectActiveMeeting = async () => {
+  const activeWindow = await window.interviewMateDesktop?.meeting.getActiveWindow()
+  if (!activeWindow) return
+
+  const previousMeetingApp = sessionStore.activeMeetingApp
+  sessionStore.updateActiveMeeting(
+    activeWindow.activeMeetingApp,
+    activeWindow.activeWindowTitle,
+  )
+
+  if (activeWindow.activeMeetingApp && activeWindow.activeMeetingApp !== previousMeetingApp) {
+    console.info(`[Interview] Active Meeting Detected: ${activeWindow.activeMeetingApp}`)
+  }
+}
+
+const validateActiveMeetingForCapture = async () => {
+  const activeWindow = await window.interviewMateDesktop?.meeting.getActiveWindow()
+  if (!activeWindow?.activeMeetingApp) {
+    const activeWindowTitle = activeWindow?.activeWindowTitle ?? ''
+    sessionStore.updateActiveMeeting('', activeWindowTitle)
+    console.info('[Capture] Unsupported Window - Capture Skipped')
+    console.info('[Capture] Waiting for Supported Meeting Application')
+    capturePausedForUnsupportedWindow = true
+    return false
+  }
+
+  console.info(`[Capture] Active Window: ${activeWindow.activeMeetingApp}`)
+  sessionStore.updateActiveMeeting(
+    activeWindow.activeMeetingApp,
+    activeWindow.activeWindowTitle,
+  )
+
+  if (capturePausedForUnsupportedWindow) {
+    console.info('[Capture] Resumed')
+  }
+  capturePausedForUnsupportedWindow = false
+  return true
+}
+
+const startActiveMeetingPolling = () => {
+  window.clearInterval(activeMeetingPollTimer)
+  void detectActiveMeeting()
+  activeMeetingPollTimer = window.setInterval(() => {
+    if (sessionStore.isRunning) void detectActiveMeeting()
+  }, 3_000)
+}
+
+const stopActiveMeetingPolling = () => {
+  window.clearInterval(activeMeetingPollTimer)
+  activeMeetingPollTimer = 0
+}
+
+const emitInterviewStarted = () => {
+  const sessionId = sessionStore.activeSession?.id
+  if (!sessionId) return
+
+  socket.emit('interview:start', {
+    sessionId,
+    sourceId: sessionStore.sourceId,
+    sourceName: sessionStore.sourceName,
+    activeMeetingApp: sessionStore.activeMeetingApp,
+    activeWindowTitle: sessionStore.activeWindowTitle,
+  })
+}
+
+const emitInterviewStopped = () =>
+  new Promise<void>((resolve) => {
+  const sessionId = sessionStore.activeSession?.id
+    if (!sessionId || !socket.connected) {
+      resolve()
+      return
+    }
+
+    socket.timeout(1_000).emit('interview:stop', { sessionId }, () => resolve())
+  })
 
 const initializeSession = async (sessionId: string) => {
   transcriptStore.clear()
@@ -166,6 +260,7 @@ console.log('ANALYZE_SCREEN_CALLED')
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
   screenshotPreviewUrl = URL.createObjectURL(frame.image)
   sessionStore.updateScreenshotPreview(screenshotPreviewUrl, frame.capturedAt)
+  console.info('[Capture] Screenshot Captured')
 
   console.info('[ScreenAnalysis] capture diagnostics', {
     screenshotSize: frame.image.size,
@@ -190,6 +285,8 @@ console.log('ANALYZE_SCREEN_CALLED')
   frame.image,
   frame.sourceId,
   frame.sourceName,
+  sessionStore.activeMeetingApp,
+  sessionStore.activeWindowTitle,
   controller.signal,
 )
       console.info('[ScreenAnalysis] OCR, code detection, and AI prompt completed')
@@ -215,11 +312,13 @@ console.log('ANALYZE_SCREEN_CALLED')
 const pickSource = async (source: CaptureSource) => {
   showSourcePicker.value = false
   try {
+    sessionStore.setInterviewSource(source.id, source.name)
     await screenAnalyzerService.start(source, handleCaptureFrame, () => {
       sessionStore.setScreenSharing(false)
       uiStore.pushToast({ type: 'info', title: 'Screen share ended' })
-    })
+    }, validateActiveMeetingForCapture)
     sessionStore.setScreenSharing(true)
+    emitInterviewStarted()
     console.info('[Interview] screen capture active via source picker', source.name)
   } catch (error) {
     sessionStore.setScreenSharing(false)
@@ -232,7 +331,7 @@ const pickSource = async (source: CaptureSource) => {
   }
 }
 
-const startScreenCapture = async (): Promise<void> => {
+const startScreenCapture = async (): Promise<'pending-picker' | 'started' | 'unavailable'> => {
   try {
     console.info('[Interview] requesting screen capture')
 
@@ -261,7 +360,7 @@ const startScreenCapture = async (): Promise<void> => {
           'Electron returned zero capture sources. Check preload and IPC wiring.',
       })
 
-      return
+      return 'unavailable'
     }
 
     availableSources.value = sources
@@ -269,7 +368,7 @@ const startScreenCapture = async (): Promise<void> => {
 
     console.info('[Interview] source picker opened')
 
-    return
+    return 'pending-picker'
   } catch (error) {
     console.error('[Interview] listSources failed', error)
 
@@ -279,15 +378,20 @@ const startScreenCapture = async (): Promise<void> => {
       description: String(error),
     })
 
-    return
+    return 'unavailable'
   }
 }
 
     // Browser fallback: use background capture via getDisplayMedia
-    const started = await screenAnalyzerService.startBackground(handleCaptureFrame)
+    const started = await screenAnalyzerService.startBackground(
+      handleCaptureFrame,
+      validateActiveMeetingForCapture,
+    )
     if (started) {
+      sessionStore.setInterviewSource('', 'Visible screen')
       sessionStore.setScreenSharing(true)
       console.info('[Interview] background screen capture active')
+      return 'started'
     } else {
       console.warn('[Interview] background screen capture unavailable')
       uiStore.pushToast({
@@ -295,6 +399,7 @@ const startScreenCapture = async (): Promise<void> => {
         title: 'Audio-only mode',
         description: 'Screen access was not granted. Listening will continue normally.',
       })
+      return 'unavailable'
     }
   } catch (error) {
     sessionStore.setScreenSharing(false)
@@ -304,6 +409,7 @@ const startScreenCapture = async (): Promise<void> => {
       title: 'Audio-only mode',
       description: 'Screen access was not granted. Listening will continue normally.',
     })
+    return 'unavailable'
   }
 }
 
@@ -372,21 +478,25 @@ const startAudioCapture = async (runId: number) => {
   sessionStore.setListening(true)
 }
 
-const stopInterviewRuntime = () => {
+const stopInterviewRuntime = async (notifyBackend = true) => {
+  if (notifyBackend && sessionStore.isRunning) await emitInterviewStopped()
   lifecycleId += 1
   activeRequests.forEach((controller) => controller.abort())
   activeRequests.clear()
+  stopActiveMeetingPolling()
   speechService.stopRecognition()
   audioCaptureService.stop()
   screenAnalyzerService.stop()
   removeSocketListeners()
   socket.disconnect()
   window.interviewMateDesktop?.floating.end()
+  console.info('[Interview] Companion Closed')
   sessionStore.stopInterview()
   assistantStore.generating = false
   analyzingScreen.value = false
   transcribing.value = false
   showSourcePicker.value = false
+  capturePausedForUnsupportedWindow = false
   screenAnalysisQueue = Promise.resolve()
   audioUploadQueue = Promise.resolve()
 }
@@ -398,17 +508,21 @@ const startInterview = async () => {
   const runId = lifecycleId
   sessionStore.startInterview()
   window.interviewMateDesktop?.floating.start()
+  console.info('[Interview] Companion Opened')
   connectSocket()
+  startActiveMeetingPolling()
 
   try {
     // Start audio capture first (no dependency on screen)
     await startAudioCapture(runId)
     // Then start screen capture (shows picker in Electron, background in browser)
-    await startScreenCapture()
+    const screenStatus = await startScreenCapture()
+    if (screenStatus !== 'pending-picker') emitInterviewStarted()
+    console.info('[Interview] Started')
     uiStore.pushToast({ type: 'success', title: 'Interview started' })
   } catch (error) {
     console.error('[Interview] startup failed', error)
-    stopInterviewRuntime()
+    await stopInterviewRuntime()
     uiStore.pushToast({
       type: 'error',
       title: 'Interview could not start',
@@ -419,10 +533,16 @@ const startInterview = async () => {
   }
 }
 
+const stopInterview = async () => {
+  await stopInterviewRuntime()
+  console.info('[Interview] Stopped')
+  uiStore.pushToast({ type: 'info', title: 'Interview stopped' })
+}
+
 const endSession = async () => {
   if (!sessionStore.activeSession || endingSession.value) return
   endingSession.value = true
-  stopInterviewRuntime()
+  await stopInterviewRuntime()
   try {
     await sessionStore.endSession(sessionStore.activeSession.id)
     uiStore.pushToast({ type: 'success', title: 'Session ended and saved' })
@@ -444,7 +564,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  stopInterviewRuntime()
+  void stopInterviewRuntime()
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
 })
 </script>
@@ -483,9 +603,12 @@ onBeforeUnmount(() => {
   </form>
 
   <div v-else-if="sessionStore.loading && !sessionStore.activeSession" class="flex min-h-480px items-center justify-center">
-    <div class="text-center">
-      <ArrowPathIcon class="mx-auto h-8 w-8 animate-spin text-cyan-500" />
-      <p class="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Loading live session...</p>
+    <div class="w-full max-w-4xl space-y-4">
+      <SkeletonBlock class="h-12 w-64" />
+      <div class="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <SkeletonBlock class="h-96 w-full" />
+        <SkeletonBlock class="h-96 w-full" />
+      </div>
     </div>
   </div>
 
@@ -516,6 +639,12 @@ onBeforeUnmount(() => {
         <span class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900">
           <span class="h-2.5 w-2.5 rounded-full" :class="assistantStore.generating ? 'animate-pulse bg-cyan-500' : isRunning ? 'bg-emerald-500' : 'bg-slate-400'"></span>
           {{ assistantStore.generating ? 'AI generating' : isRunning ? 'AI active' : 'AI idle' }}
+        </span>
+        <span
+          v-if="sessionStore.activeMeetingApp || sessionStore.activeWindowTitle"
+          class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900"
+        >
+          {{ sessionStore.activeMeetingApp || 'Active window' }}
         </span>
       </div>
     </section>
@@ -572,9 +701,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto p-5">
-          <div v-if="assistantStore.generating" class="mb-4 rounded-lg border border-cyan-200 bg-cyan-50 p-4 text-sm font-semibold text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-100">
-            <span class="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-500"></span>
-            AI is preparing a context-aware answer...
+          <div v-if="assistantStore.generating" class="mb-4 rounded-lg border border-cyan-200 bg-cyan-50 p-4 dark:border-cyan-900 dark:bg-cyan-950/40">
+            <SkeletonBlock class="h-4 w-56" />
+            <SkeletonBlock class="mt-3 h-4 w-full" />
+            <SkeletonBlock class="mt-2 h-4 w-3/4" />
           </div>
 
           <div v-if="!latestSuggestion" class="flex h-full min-h-360px items-center justify-center text-center text-slate-500 dark:text-slate-400">
@@ -679,6 +809,14 @@ onBeforeUnmount(() => {
         <ArrowPathIcon v-if="startingInterview" class="h-5 w-5 animate-spin" />
         <MicrophoneIcon v-else class="h-5 w-5" />
         {{ isRunning ? 'Interview Running' : startingInterview ? 'Starting...' : 'Start Interview' }}
+      </button>
+      <button
+        v-if="isRunning"
+        class="inline-flex min-w-40 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 py-3 font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+        @click="stopInterview"
+      >
+        <StopCircleIcon class="h-5 w-5" />
+        Stop Interview
       </button>
       <button
         v-if="sessionStore.activeSession.status === 'active'"

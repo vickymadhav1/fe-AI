@@ -9,6 +9,12 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
         saveDebug: (bytes, width, height) => ipcRenderer.invoke('capture:save-debug', bytes, width, height),
         getVisibleScreen: () => ipcRenderer.invoke('capture:get-visible-screen'),
     },
+    meeting: {
+        getActiveWindow: () => ipcRenderer.invoke('meeting:get-active-window'),
+    },
+    invisible: {
+        setContentProtection: (enabled) => ipcRenderer.invoke('invisible:set-content-protection', enabled),
+    },
     floating: {
         getLatest: () => ipcRenderer.invoke('floating:get-latest'),
         publish: (result) => ipcRenderer.send('floating:publish', result),

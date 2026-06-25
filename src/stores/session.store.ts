@@ -24,6 +24,10 @@ export interface InterviewState {
   detectedLanguage: string
   ocrCharacterCount: number
   screenshotPreviewUrl: string
+  activeMeetingApp: string
+  activeWindowTitle: string
+  sourceId: string
+  sourceName: string
 }
 
 export const useSessionStore = defineStore('sessions', {
@@ -49,6 +53,10 @@ export const useSessionStore = defineStore('sessions', {
     detectedLanguage: '',
     ocrCharacterCount: 0,
     screenshotPreviewUrl: '',
+    activeMeetingApp: '',
+    activeWindowTitle: '',
+    sourceId: '',
+    sourceName: '',
   }),
   actions: {
     async fetchSessions() {
@@ -104,6 +112,14 @@ export const useSessionStore = defineStore('sessions', {
     },
     startInterview() {
       this.isRunning = true
+    },
+    setInterviewSource(sourceId: string, sourceName: string) {
+      this.sourceId = sourceId
+      this.sourceName = sourceName
+    },
+    updateActiveMeeting(activeMeetingApp: string, activeWindowTitle: string) {
+      this.activeMeetingApp = activeMeetingApp
+      this.activeWindowTitle = activeWindowTitle
     },
     setListening(active: boolean) {
       this.isListening = active
@@ -172,6 +188,10 @@ export const useSessionStore = defineStore('sessions', {
       this.detectedLanguage = ''
       this.ocrCharacterCount = 0
       this.screenshotPreviewUrl = ''
+      this.activeMeetingApp = ''
+      this.activeWindowTitle = ''
+      this.sourceId = ''
+      this.sourceName = ''
     },
   },
 })
