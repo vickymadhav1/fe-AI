@@ -1,7 +1,6 @@
 import axios from 'axios'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { appConfig } from '@/config/app.config'
-import { mockChatHistory, mockCredits, mockInterviews, mockSuggestions } from '@/services/mock-data'
 import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
 
 export const apiClient = axios.create({
@@ -11,7 +10,6 @@ export const apiClient = axios.create({
 
 const pendingApiRequests = ref(0)
 const trackedRequests = new WeakSet<object>()
-export const apiLoading = computed(() => pendingApiRequests.value > 0)
 
 apiClient.interceptors.request.use(
   (config) => {
@@ -59,11 +57,6 @@ apiClient.interceptors.response.use(
   },
 )
 
-const delay = <T>(payload: T, ms = 500) =>
-  new Promise<T>((resolve) => {
-    window.setTimeout(() => resolve(payload), ms)
-  })
-
 export const api = {
   getAiProviderHealth: async (refresh = false): Promise<AiProviderHealth[]> => {
     const path = refresh ? '/health/ai' : '/health'
@@ -84,34 +77,41 @@ export const api = {
   },
 
   getInterviews: async (): Promise<Interview[]> => {
-    return delay([...mockInterviews], 400)
+    return []
   },
 
   getCredits: async () => {
-    return delay({ ...mockCredits }, 250)
+    return { remaining: 0, used: 0, monthlyLimit: 0 }
   },
 
   createInterview: async (payload: CreateInterviewPayload): Promise<Interview> => {
-    return delay(
-      {
-        id: `int_${Date.now()}`,
-        ...payload,
-        status: 'scheduled',
-      },
-      800,
-    )
+    const session = (
+      await apiClient.post<{ data: InterviewSession }>('/sessions', {
+        title: payload.company ? `${payload.company} interview` : payload.role,
+        company: payload.company,
+        role: payload.role,
+      })
+    ).data.data
+
+    return {
+      id: session.id,
+      ...payload,
+      status: 'scheduled',
+    }
   },
 
   startInterview: async (id: string): Promise<{ sessionId: string; interviewId: string }> => {
-    return delay({ sessionId: `session_${Date.now()}`, interviewId: id }, 500)
+    return { sessionId: id, interviewId: id }
   },
 
   getSuggestions: async (interviewId: string): Promise<AiSuggestion[]> => {
-    return delay(mockSuggestions.map((item) => ({ ...item, interviewId })), 600)
+    void interviewId
+    return []
   },
 
   getChatHistory: async (interviewId: string): Promise<ChatMessage[]> => {
-    return delay(mockChatHistory.map((item) => ({ ...item, interviewId })), 350)
+    void interviewId
+    return []
   },
 
   createSession: async (payload: { title?: string; company?: string; role?: string }) =>

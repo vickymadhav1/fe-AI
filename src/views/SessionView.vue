@@ -14,11 +14,19 @@ import { getSocket } from '@/services/socket'
 import { speechService } from '@/services/speech/speech.service'
 import { isElectronRuntime } from '@/services/runtime'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import StealthScreenSharingDialog from '@/components/StealthScreenSharingDialog.vue'
 import { useAssistantStore } from '@/stores/assistant.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useTranscriptStore } from '@/stores/transcript.store'
 import { useUiStore } from '@/stores/ui.store'
-import type { ScreenContext, Suggestion, Transcript } from '@/types'
+import type {
+  ScreenContext,
+  Suggestion,
+  Transcript,
+  VoiceAnswerChunk,
+  VoicePartial,
+  VoiceQuestionDraft,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,12 +46,14 @@ const endingSession = ref(false)
 const activeTab = ref<'answer' | 'code' | 'screenshot'>('answer')
 const transcriptPanel = ref<HTMLElement | null>(null)
 const isNew = computed(() => route.params.id === 'new')
-const latestSuggestion = computed(() => assistantStore.suggestions.at(-1) ?? null)
+const latestSuggestion = computed(() => assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1) ?? null)
 const activeRequests = new Set<AbortController>()
 
 // Source picker state
 const showSourcePicker = ref(false)
 const availableSources = ref<CaptureSource[]>([])
+const showStealthDialog = ref(false)
+const rememberStealthChoice = ref(true)
 
 let lifecycleId = 0
 let screenAnalysisQueue = Promise.resolve()
@@ -51,11 +61,58 @@ let audioUploadQueue = Promise.resolve()
 let screenshotPreviewUrl = ''
 let activeMeetingPollTimer = 0
 let capturePausedForUnsupportedWindow = false
+let stealthModeActive = false
+let pendingStealthMode = false
+let previousInvisibleState = false
+let resolveStealthDialog: ((enabled: boolean) => void) | null = null
+let liveVoiceSequence = 0
+let speechFinalTimer = 0
 
 const safeConfidence = (value: unknown) => {
   const confidence = Number(value)
   return Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.8
 }
+
+const createLiveSuggestion = (payload: {
+  id?: string
+  sessionId: string
+  sequence?: number
+  question: string
+  answer: string
+  provider?: string
+  confidence?: number
+  type?: Suggestion['type']
+  code?: string | null
+  output?: string | null
+  language?: string | null
+  complexity?: string | null
+  rootCause?: string | null
+  fix?: string | null
+  keyPoints?: string[]
+  analysisMode?: Suggestion['analysisMode']
+  promptDebug?: string
+  createdAt?: string
+}): Suggestion => ({
+  id: payload.id ?? `voice-live-${payload.sequence ?? Date.now()}`,
+  sessionId: payload.sessionId,
+  question: payload.question,
+  answer: payload.answer,
+  provider: payload.provider,
+  type: payload.type ?? 'THEORY',
+  code: payload.code ?? null,
+  output: payload.output ?? null,
+  language: payload.language ?? null,
+  complexity: payload.complexity ?? null,
+  rootCause: payload.rootCause ?? null,
+  fix: payload.fix ?? null,
+  analysisMode: payload.analysisMode ?? 'GENERAL',
+  promptDebug: payload.promptDebug ?? 'Live voice draft',
+  keyPoints: payload.keyPoints ?? [],
+  confidence: safeConfidence(payload.confidence ?? 0.72),
+  createdAt: payload.createdAt ?? new Date().toISOString(),
+  live: true,
+  sequence: payload.sequence,
+})
 
 const publishCompanionResult = (suggestion: Suggestion) => {
   window.interviewMateDesktop?.floating.publish({
@@ -78,6 +135,10 @@ const removeSocketListeners = () => {
   socket.off('transcript:update')
   socket.off('question:detected')
   socket.off('answer:generated')
+  socket.off('voice:partial')
+  socket.off('voice:question')
+  socket.off('voice:answer:chunk')
+  socket.off('voice:answer:complete')
   socket.off('screen:updated')
   socket.off('interview:started')
   socket.off('interview:stopped')
@@ -107,6 +168,70 @@ const connectSocket = () => {
     assistantStore.add(suggestion)
     sessionStore.updateSuggestion(suggestion)
     publishCompanionResult(suggestion)
+  })
+  socket.on('voice:partial', (payload) => {
+    const partial = payload as VoicePartial
+    if (partial.text) {
+      console.info('[Voice] Partial Transcript Updated')
+      sessionStore.updateVoicePartial(partial.text, partial.source)
+      transcriptStore.interimText = partial.text
+    }
+  })
+  socket.on('voice:question', (payload) => {
+    const draft = payload as VoiceQuestionDraft
+    console.info('[Voice] Question Detected')
+    assistantStore.detectQuestion(draft.question)
+    sessionStore.updateVoiceQuestion(
+      draft.question,
+      draft.classification.type,
+      draft.audioSource,
+    )
+    const liveSuggestion = createLiveSuggestion({
+      sessionId: draft.sessionId,
+      sequence: draft.sequence,
+      question: draft.question,
+      answer: sessionStore.liveAnswer,
+      confidence: draft.confidence,
+      type: draft.classification.type,
+    })
+    assistantStore.updateLiveSuggestion(liveSuggestion)
+    publishCompanionResult(liveSuggestion)
+  })
+  socket.on('voice:answer:chunk', (payload) => {
+    const chunk = payload as VoiceAnswerChunk
+    console.info('[Voice] AI Streaming Started')
+    const liveSuggestion = createLiveSuggestion({
+      sessionId: chunk.sessionId,
+      sequence: chunk.sequence,
+      question: chunk.question,
+      answer: chunk.answer,
+      provider: chunk.provider,
+      confidence: chunk.confidence,
+    })
+    assistantStore.updateLiveSuggestion(liveSuggestion)
+    sessionStore.updateVoiceAnswer(
+      chunk.question,
+      chunk.answer,
+      chunk.confidence,
+      chunk.provider,
+    )
+    publishCompanionResult(liveSuggestion)
+  })
+  socket.on('voice:answer:complete', (payload) => {
+    const suggestion = payload as Suggestion
+    const liveSuggestion = createLiveSuggestion({
+      ...suggestion,
+      answer: suggestion.answer,
+      confidence: suggestion.confidence,
+    })
+    assistantStore.updateLiveSuggestion(liveSuggestion)
+    sessionStore.updateVoiceAnswer(
+      liveSuggestion.question,
+      liveSuggestion.answer,
+      liveSuggestion.confidence,
+      liveSuggestion.provider,
+    )
+    publishCompanionResult(liveSuggestion)
   })
   socket.on('screen:updated', (payload) => {
     const context = payload as ScreenContext
@@ -189,6 +314,7 @@ const stopActiveMeetingPolling = () => {
 const emitInterviewStarted = () => {
   const sessionId = sessionStore.activeSession?.id
   if (!sessionId) return
+  const desktopPlatform = window.interviewMateDesktop?.platform ?? ''
 
   socket.emit('interview:start', {
     sessionId,
@@ -196,6 +322,9 @@ const emitInterviewStarted = () => {
     sourceName: sessionStore.sourceName,
     activeMeetingApp: sessionStore.activeMeetingApp,
     activeWindowTitle: sessionStore.activeWindowTitle,
+    stealthMode: stealthModeActive || pendingStealthMode,
+    stealthPlatform: desktopPlatform,
+    stealthProtectionSupported: desktopPlatform === 'darwin' || desktopPlatform === 'win32',
   })
 }
 
@@ -310,15 +439,25 @@ console.log('ANALYZE_SCREEN_CALLED')
 
 // Called when user picks a source from the picker modal
 const pickSource = async (source: CaptureSource) => {
-  showSourcePicker.value = false
-  try {
-    sessionStore.setInterviewSource(source.id, source.name)
-    await screenAnalyzerService.start(source, handleCaptureFrame, () => {
+    showSourcePicker.value = false
+    try {
+      sessionStore.setInterviewSource(source.id, source.name)
+    const sharedStream = await screenAnalyzerService.start(source, handleCaptureFrame, () => {
       sessionStore.setScreenSharing(false)
       uiStore.pushToast({ type: 'info', title: 'Screen share ended' })
     }, validateActiveMeetingForCapture)
+    const sessionId = sessionStore.activeSession?.id
+    if (sessionId && isRunning.value) {
+      await audioCaptureService.start(
+        true,
+        (audio) => uploadAudioChunk(sessionId, audio, lifecycleId),
+        sharedStream,
+      )
+      sessionStore.voiceSource = audioCaptureService.getSourceKind()
+    }
     sessionStore.setScreenSharing(true)
     emitInterviewStarted()
+    if (pendingStealthMode) await activateStealthMode()
     console.info('[Interview] screen capture active via source picker', source.name)
   } catch (error) {
     sessionStore.setScreenSharing(false)
@@ -329,6 +468,68 @@ const pickSource = async (source: CaptureSource) => {
       description: 'Screen capture could not start. Listening will continue normally.',
     })
   }
+}
+
+const cancelSourcePicker = () => {
+  showSourcePicker.value = false
+  pendingStealthMode = false
+  if (sessionStore.isRunning) emitInterviewStarted()
+}
+
+const askForStealthMode = () => {
+  if (uiStore.stealthSettings.autoEnable) return Promise.resolve(true)
+  if (!uiStore.stealthSettings.askBeforeInterview) return Promise.resolve(false)
+  console.info('[Stealth] Screen Sharing Dialog Displayed')
+  showStealthDialog.value = true
+  rememberStealthChoice.value = true
+  return new Promise<boolean>((resolve) => {
+    resolveStealthDialog = resolve
+  })
+}
+
+const chooseStealthMode = (enabled: boolean) => {
+  showStealthDialog.value = false
+  if (rememberStealthChoice.value) {
+    uiStore.updateStealthSettings({
+      autoEnable: enabled,
+      askBeforeInterview: false,
+    })
+  }
+  resolveStealthDialog?.(enabled)
+  resolveStealthDialog = null
+}
+
+const activateStealthMode = async () => {
+  if (!pendingStealthMode || stealthModeActive) return
+  pendingStealthMode = false
+  stealthModeActive = true
+  console.info('[Stealth] User Selected Stealth Mode')
+  previousInvisibleState = Boolean((await window.interviewMateDesktop?.invisible.getContentProtection())?.enabled)
+  const invisibleResult = await window.interviewMateDesktop?.invisible.setContentProtection(true)
+  const stealthResult = await window.interviewMateDesktop?.stealth.setCaptureProtection(true)
+  console.info('[Stealth] Protection Enabled')
+  console.info('[Stealth] Main Window Protected')
+  console.info('[Stealth] Companion Protected')
+  console.info('[Stealth] Viewer Capture Exclusion Applied')
+  if (stealthResult?.supported === false || invisibleResult?.supported === false) {
+    uiStore.pushToast({
+      type: 'info',
+      title: 'Stealth protection is limited',
+      description:
+        stealthResult?.warning ??
+        invisibleResult?.warning ??
+        'This platform or meeting application may not fully hide Interview Mate AI from shared-screen viewers.',
+    })
+  }
+  console.info('[Stealth] Background Processing Active')
+}
+
+const restoreStealthMode = async () => {
+  if (!stealthModeActive && !pendingStealthMode) return
+  pendingStealthMode = false
+  stealthModeActive = false
+  await window.interviewMateDesktop?.stealth.setCaptureProtection(false)
+  await window.interviewMateDesktop?.invisible.setContentProtection(previousInvisibleState)
 }
 
 const startScreenCapture = async (): Promise<'pending-picker' | 'started' | 'unavailable'> => {
@@ -447,6 +648,63 @@ const uploadAudioChunk = (sessionId: string, audio: Blob, runId: number) => {
   })
 }
 
+const emitVoicePartial = (
+  sessionId: string,
+  text: string,
+  isFinal: boolean,
+  runId: number,
+) => {
+  const normalized = text.trim().replace(/\s+/g, ' ')
+  if (!normalized || runId !== lifecycleId || !socket.connected) return
+
+  if (!isFinal) {
+    console.info('[Voice] Interviewer Speaking')
+    console.info('[Voice] Partial Transcript Updated')
+  }
+
+  socket.emit('voice:partial', {
+    sessionId,
+    text: normalized,
+    isFinal,
+    source: audioCaptureService.getSourceKind(),
+    confidence: isFinal ? 0.86 : 0.68,
+  })
+}
+
+const startStreamingSpeechRecognition = (
+  sessionId: string,
+  runId: number,
+  persistFinalTranscript: boolean,
+) => {
+  if (!speechService.supported) return false
+
+  speechService.startRecognition(
+    ({ text, isFinal }) => {
+      if (!text.trim() || runId !== lifecycleId) return
+      window.clearTimeout(speechFinalTimer)
+      emitVoicePartial(sessionId, text, isFinal, runId)
+      if (!isFinal) {
+        speechFinalTimer = window.setTimeout(() => {
+          emitVoicePartial(sessionId, text, true, runId)
+        }, 1_100)
+        return
+      }
+
+      if (persistFinalTranscript) {
+        socket.emit('transcript:new', {
+          sessionId,
+          speaker: 'interviewer',
+          text: text.trim(),
+        })
+        assistantStore.generating = true
+      }
+    },
+    () => sessionStore.setListening(false),
+  )
+  console.info('[Speech] Streaming Started')
+  return true
+}
+
 const startAudioCapture = async (runId: number) => {
   const sessionId = sessionStore.activeSession?.id
   if (!sessionId) throw new Error('Session is not available')
@@ -457,33 +715,26 @@ const startAudioCapture = async (runId: number) => {
       (audio) => uploadAudioChunk(sessionId, audio, runId),
       null,
     )
+    startStreamingSpeechRecognition(sessionId, runId, false)
     sessionStore.setListening(true)
     return
   }
 
-  if (!speechService.supported) throw new Error('Speech recognition is unavailable')
   await audioCaptureService.start(false, () => undefined)
-  speechService.startRecognition(
-    ({ text, isFinal }) => {
-      if (!isFinal || !text.trim() || runId !== lifecycleId) return
-      socket.emit('transcript:new', {
-        sessionId,
-        speaker: 'interviewer',
-        text: text.trim(),
-      })
-      assistantStore.generating = true
-    },
-    () => sessionStore.setListening(false),
-  )
+  if (!startStreamingSpeechRecognition(sessionId, runId, true)) {
+    throw new Error('Speech recognition is unavailable')
+  }
   sessionStore.setListening(true)
 }
 
 const stopInterviewRuntime = async (notifyBackend = true) => {
+  await restoreStealthMode()
   if (notifyBackend && sessionStore.isRunning) await emitInterviewStopped()
   lifecycleId += 1
   activeRequests.forEach((controller) => controller.abort())
   activeRequests.clear()
   stopActiveMeetingPolling()
+  window.clearTimeout(speechFinalTimer)
   speechService.stopRecognition()
   audioCaptureService.stop()
   screenAnalyzerService.stop()
@@ -496,6 +747,9 @@ const stopInterviewRuntime = async (notifyBackend = true) => {
   analyzingScreen.value = false
   transcribing.value = false
   showSourcePicker.value = false
+  showStealthDialog.value = false
+  resolveStealthDialog?.(false)
+  resolveStealthDialog = null
   capturePausedForUnsupportedWindow = false
   screenAnalysisQueue = Promise.resolve()
   audioUploadQueue = Promise.resolve()
@@ -515,9 +769,12 @@ const startInterview = async () => {
   try {
     // Start audio capture first (no dependency on screen)
     await startAudioCapture(runId)
+    console.info('[Stealth] Permissions Granted')
+    pendingStealthMode = await askForStealthMode()
     // Then start screen capture (shows picker in Electron, background in browser)
     const screenStatus = await startScreenCapture()
     if (screenStatus !== 'pending-picker') emitInterviewStarted()
+    if (pendingStealthMode && screenStatus !== 'pending-picker') await activateStealthMode()
     console.info('[Interview] Started')
     uiStore.pushToast({ type: 'success', title: 'Interview started' })
   } catch (error) {
@@ -572,31 +829,31 @@ onBeforeUnmount(() => {
 <template>
   <form
     v-if="isNew"
-    class="mx-auto max-w-2xl space-y-6 rounded-lg border border-slate-200 bg-white p-8 dark:border-slate-800 dark:bg-slate-900"
+    class="im-card mx-auto max-w-2xl space-y-6 p-8"
     @submit.prevent="createSession"
   >
     <div>
       <h2 class="text-2xl font-bold">Create interview session</h2>
-      <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p class="mt-2 text-sm text-slate-500">
         Add basic interview details before opening the live session.
       </p>
     </div>
     <label class="block text-sm font-semibold">
       Session title
-      <input v-model="form.title" required class="mt-2 w-full rounded-lg border border-slate-300 bg-transparent px-4 py-3 dark:border-slate-700" placeholder="Frontend Interview" />
+      <input v-model="form.title" required class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Frontend Interview" />
     </label>
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="block text-sm font-semibold">
         Company
-        <input v-model="form.company" class="mt-2 w-full rounded-lg border border-slate-300 bg-transparent px-4 py-3 dark:border-slate-700" placeholder="Company name" />
+        <input v-model="form.company" class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Company name" />
       </label>
       <label class="block text-sm font-semibold">
         Role
-        <input v-model="form.role" required class="mt-2 w-full rounded-lg border border-slate-300 bg-transparent px-4 py-3 dark:border-slate-700" placeholder="Frontend Developer" />
+        <input v-model="form.role" required class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Frontend Developer" />
       </label>
     </div>
     <button class="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-5 py-3 font-semibold text-white disabled:opacity-60" :disabled="creating">
-      <ArrowPathIcon v-if="creating" class="h-5 w-5 animate-spin" />
+      <ArrowPathIcon v-if="creating" class="h-5 w-5" />
       <MicrophoneIcon v-else class="h-5 w-5" />
       {{ creating ? 'Creating...' : 'Create Session' }}
     </button>
@@ -612,12 +869,11 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <main v-else-if="sessionStore.activeSession" class="flex h-[calc(100vh-8rem)] min-h-680px flex-col gap-5">
-    <section class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800">
+  <main v-else-if="sessionStore.activeSession" class="im-prototype-page flex flex-col gap-[30px]">
+    <section class="flex min-h-[82px] items-center justify-between rounded-[18px] border border-[#1e293b] bg-[#0b111d] px-8">
       <div>
-        <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Workspace</p>
-        <h2 class="text-3xl font-bold">Live Session</h2>
-        <p class="mt-2 text-slate-500 dark:text-slate-400">
+        <h2 class="text-[36px] font-extrabold leading-none text-slate-50">Live Interview</h2>
+        <p class="mt-2 text-[13px] font-medium text-slate-500">
           {{ sessionStore.activeSession.title || 'Interview session' }}
           <span v-if="sessionStore.activeSession.company"> · {{ sessionStore.activeSession.company }}</span>
           <span v-if="sessionStore.activeSession.role"> · {{ sessionStore.activeSession.role }}</span>
@@ -625,73 +881,91 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <span class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900">
+        <span class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-slate-200">
           <span class="h-2.5 w-2.5 rounded-full" :class="isListening ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'"></span>
           {{ isListening ? (transcribing ? 'Transcribing' : 'Listening') : 'Audio idle' }}
         </span>
-        <span v-if="sessionStore.lastCapture" class="text-xs text-slate-500 dark:text-slate-400">
+        <span v-if="sessionStore.lastCapture" class="text-xs text-slate-500">
           Last capture {{ new Date(sessionStore.lastCapture).toLocaleTimeString() }}
         </span>
-        <span class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900">
+        <span class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-slate-200">
           <span class="h-2.5 w-2.5 rounded-full" :class="isScreenSharing ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'"></span>
           {{ analyzingScreen ? 'Analyzing screen' : isScreenSharing ? 'Screen active' : 'Screen idle' }}
         </span>
-        <span class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900">
+        <span class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-slate-200">
           <span class="h-2.5 w-2.5 rounded-full" :class="assistantStore.generating ? 'animate-pulse bg-cyan-500' : isRunning ? 'bg-emerald-500' : 'bg-slate-400'"></span>
           {{ assistantStore.generating ? 'AI generating' : isRunning ? 'AI active' : 'AI idle' }}
         </span>
         <span
+          v-if="isListening"
+          class="inline-flex items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-sm font-bold text-cyan-100"
+        >
+          <span class="h-2.5 w-2.5 rounded-full animate-pulse bg-cyan-300"></span>
+          Voice {{ sessionStore.voiceStatus }} · {{ sessionStore.voiceSource }}
+        </span>
+        <span
           v-if="sessionStore.activeMeetingApp || sessionStore.activeWindowTitle"
-          class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold dark:border-slate-800 dark:bg-slate-900"
+          class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-bold text-slate-200"
         >
           {{ sessionStore.activeMeetingApp || 'Active window' }}
         </span>
       </div>
     </section>
 
-    <section class="grid min-h-0 flex-1 gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <article class="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-          <h3 class="text-lg font-semibold">Live Transcript</h3>
+    <section class="grid gap-8 xl:grid-cols-[360px_584px_368px]">
+      <article class="h-[836px] rounded-2xl border border-[#263347] bg-[#0e1422] flex min-h-0 flex-col">
+        <div class="border-b border-white/10 px-8 py-9">
+          <h3 class="text-[18px] font-bold text-slate-50">Live Transcript</h3>
         </div>
 
-        <div ref="transcriptPanel" class="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-          <p v-if="!transcriptStore.items.length" class="text-slate-500 dark:text-slate-400">
-            Start the interview to capture interviewer questions.
-          </p>
+        <div ref="transcriptPanel" class="im-scrollbar min-h-0 flex-1 space-y-6 overflow-y-auto p-8">
+          <div v-if="!transcriptStore.items.length" class="space-y-5">
+            <article v-for="item in 4" :key="item" class="rounded-xl bg-[#0f172a] p-5">
+              <SkeletonBlock class="h-3 w-24" />
+              <SkeletonBlock class="mt-3 h-4 w-full" />
+              <SkeletonBlock class="mt-2 h-4 w-4/5" />
+            </article>
+          </div>
+          <article
+            v-if="transcriptStore.interimText"
+            class="rounded-xl border border-cyan-300/20 bg-cyan-400/10 p-4"
+          >
+            <p class="text-xs font-bold uppercase text-cyan-300">Interviewer speaking</p>
+            <p class="mt-2 leading-7 text-slate-100">{{ transcriptStore.interimText }}</p>
+          </article>
           <article
             v-for="item in transcriptStore.items"
             :key="item.id"
-            class="border-l-2 border-cyan-500 pl-4"
+            class="rounded-xl bg-[#0f172a] p-5"
           >
             <p class="text-xs font-bold uppercase text-slate-400">{{ item.speaker }}</p>
-            <p class="mt-2 leading-7 text-slate-900 dark:text-slate-100">{{ item.text }}</p>
+            <p class="mt-2 leading-7 text-slate-100">{{ item.text }}</p>
           </article>
         </div>
       </article>
 
-      <article class="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+      <article class="h-[836px] rounded-2xl border border-[#263347] bg-[#0e1422] flex min-h-0 flex-col">
+        <div class="border-b border-white/10 px-8 py-9">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 class="text-lg font-semibold">AI Suggested Answer</h3>
-            <div class="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950">
+            <h3 class="text-[18px] font-bold text-slate-50">AI Suggested Answer</h3>
+            <div class="inline-flex rounded-xl border border-white/10 bg-black/20 p-1">
               <button
                 class="rounded-md px-4 py-2 text-sm font-semibold transition"
-                :class="activeTab === 'answer' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                :class="activeTab === 'answer' ? 'bg-white/10 text-slate-50 shadow-sm' : 'text-slate-500 hover:text-slate-100'"
                 @click="activeTab = 'answer'"
               >
                 Answer
               </button>
               <button
                 class="rounded-md px-4 py-2 text-sm font-semibold transition"
-                :class="activeTab === 'code' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                :class="activeTab === 'code' ? 'bg-white/10 text-slate-50 shadow-sm' : 'text-slate-500 hover:text-slate-100'"
                 @click="activeTab = 'code'"
               >
                 Code
               </button>
               <button
                 class="rounded-md px-4 py-2 text-sm font-semibold transition"
-                :class="activeTab === 'screenshot' ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                :class="activeTab === 'screenshot' ? 'bg-white/10 text-slate-50 shadow-sm' : 'text-slate-500 hover:text-slate-100'"
                 @click="activeTab = 'screenshot'"
               >
                 Screenshot
@@ -700,53 +974,80 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-5">
+        <div class="im-scrollbar min-h-0 flex-1 overflow-y-auto p-8">
           <div v-if="assistantStore.generating" class="mb-4 rounded-lg border border-cyan-200 bg-cyan-50 p-4 dark:border-cyan-900 dark:bg-cyan-950/40">
             <SkeletonBlock class="h-4 w-56" />
             <SkeletonBlock class="mt-3 h-4 w-full" />
             <SkeletonBlock class="mt-2 h-4 w-3/4" />
           </div>
+          <div
+            v-if="sessionStore.liveAnswer && assistantStore.liveSuggestion?.live"
+            class="mb-4 rounded-xl border border-cyan-300/20 bg-cyan-400/10 p-4"
+          >
+            <p class="text-xs font-bold uppercase text-cyan-300">
+              Live voice answer · {{ sessionStore.liveQuestionType || 'Detecting' }}
+            </p>
+            <p class="mt-2 text-sm text-slate-300">
+              Refining as the interviewer speaks.
+            </p>
+          </div>
 
-          <div v-if="!latestSuggestion" class="flex h-full min-h-360px items-center justify-center text-center text-slate-500 dark:text-slate-400">
-            Suggestions appear automatically when a question, visible code, or coding prompt is detected.
+          <div v-if="!latestSuggestion" class="space-y-6">
+            <section class="space-y-5">
+              <div>
+                <SkeletonBlock class="h-3 w-20" />
+                <SkeletonBlock class="mt-3 h-7 w-4/5" />
+              </div>
+              <div>
+                <SkeletonBlock class="h-3 w-16" />
+                <SkeletonBlock class="mt-3 h-4 w-full" />
+                <SkeletonBlock class="mt-2 h-4 w-11/12" />
+                <SkeletonBlock class="mt-2 h-4 w-3/4" />
+              </div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <SkeletonBlock class="h-28 rounded-xl" />
+                <SkeletonBlock class="h-28 rounded-xl" />
+              </div>
+              <SkeletonBlock class="h-16 rounded-xl" />
+            </section>
           </div>
 
           <template v-else-if="activeTab === 'answer'">
             <section class="space-y-5">
               <div>
-                <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Question</p>
+                <p class="text-xs font-bold uppercase text-cyan-300">Question</p>
                 <h4 class="mt-2 text-xl font-semibold">{{ latestSuggestion.question }}</h4>
               </div>
 
               <div v-if="latestSuggestion.output">
-                <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Output prediction</p>
+                <p class="text-xs font-bold uppercase text-cyan-300">Output prediction</p>
                 <pre class="mt-2 whitespace-pre-wrap rounded-lg bg-slate-950 p-4 font-mono text-sm text-white">{{ latestSuggestion.output }}</pre>
               </div>
 
               <div>
-                <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Answer</p>
-                <p class="mt-2 whitespace-pre-line leading-7 text-slate-700 dark:text-slate-200">{{ latestSuggestion.answer }}</p>
+                <p class="text-xs font-bold uppercase text-cyan-300">Answer</p>
+                <p class="mt-2 whitespace-pre-line leading-7 text-slate-200">{{ latestSuggestion.answer }}</p>
               </div>
 
               <div v-if="latestSuggestion.rootCause || latestSuggestion.fix" class="grid gap-4 md:grid-cols-2">
-                <div v-if="latestSuggestion.rootCause" class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div v-if="latestSuggestion.rootCause" class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Root cause</p>
                   <p class="mt-2 text-sm leading-6">{{ latestSuggestion.rootCause }}</p>
                 </div>
-                <div v-if="latestSuggestion.fix" class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div v-if="latestSuggestion.fix" class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Fix</p>
                   <p class="mt-2 text-sm leading-6">{{ latestSuggestion.fix }}</p>
                 </div>
               </div>
 
               <div v-if="latestSuggestion.complexity">
-                <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">Complexity</p>
-                <p class="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{{ latestSuggestion.complexity }}</p>
+                <p class="text-xs font-bold uppercase text-cyan-300">Complexity</p>
+                <p class="mt-2 text-sm leading-6 text-slate-200">{{ latestSuggestion.complexity }}</p>
               </div>
 
-              <div class="border-t border-slate-200 pt-4 dark:border-slate-800">
+              <div class="border-t border-white/10 pt-4">
                 <p class="text-xs font-bold uppercase text-slate-400">Confidence</p>
-                <p class="mt-1 text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                <p class="mt-1 text-2xl font-bold text-emerald-300">
                   {{ Math.round(latestSuggestion.confidence * 100) }}%
                 </p>
               </div>
@@ -756,16 +1057,16 @@ onBeforeUnmount(() => {
           <template v-else-if="activeTab === 'code'">
             <section v-if="latestSuggestion.code || latestSuggestion.fix" class="space-y-4">
               <div class="flex items-center justify-between gap-3">
-                <p class="text-xs font-bold uppercase text-cyan-600 dark:text-cyan-400">
+                <p class="text-xs font-bold uppercase text-cyan-300">
                   {{ latestSuggestion.language || 'Code' }}
                 </p>
-                <span class="rounded bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                <span class="rounded bg-white/10 px-2 py-1 text-xs font-bold text-slate-300">
                   {{ latestSuggestion.type }}
                 </span>
               </div>
               <pre class="max-h-560px overflow-auto whitespace-pre rounded-lg bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100">{{ latestSuggestion.code || latestSuggestion.fix }}</pre>
             </section>
-            <div v-else class="flex h-full min-h-360px items-center justify-center text-center text-slate-500 dark:text-slate-400">
+            <div v-else class="flex h-full min-h-360px items-center justify-center text-center text-slate-500">
               No generated code is needed for this answer.
             </div>
           </template>
@@ -773,46 +1074,85 @@ onBeforeUnmount(() => {
           <template v-else>
             <section class="space-y-5">
               <div class="grid gap-3 sm:grid-cols-2">
-                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Last screenshot</p>
                   <p class="mt-2 font-semibold">{{ sessionStore.lastCapture ? new Date(sessionStore.lastCapture).toLocaleString() : 'No capture yet' }}</p>
                 </div>
-                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Language detected</p>
                   <p class="mt-2 font-semibold">{{ sessionStore.detectedLanguage || 'Not detected' }}</p>
                 </div>
-                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Code detection</p>
                   <p class="mt-2 font-semibold">{{ sessionStore.codeDetectionStatus }}</p>
                 </div>
-                <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+                <div class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">OCR characters</p>
                   <p class="mt-2 font-semibold">{{ sessionStore.ocrCharacterCount }}</p>
                 </div>
               </div>
-              <div class="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950">
+              <div class="overflow-hidden rounded-xl border border-white/10 bg-black/30">
                 <img v-if="sessionStore.screenshotPreviewUrl" :src="sessionStore.screenshotPreviewUrl" alt="Latest captured interview screen" class="max-h-430px w-full object-contain" />
-                <div v-else class="flex min-h-72 items-center justify-center text-slate-500">Screenshot preview appears after screen capture starts.</div>
+                <div v-else class="min-h-72 p-5">
+                  <SkeletonBlock class="h-72 w-full rounded-xl" />
+                </div>
               </div>
             </section>
           </template>
         </div>
       </article>
+
+      <aside class="space-y-9">
+        <section class="h-[500px] rounded-2xl border border-[#263347] bg-[#0e1422] p-8">
+          <h3 class="text-[18px] font-bold text-slate-50">Floating assistant</h3>
+          <div class="mt-10 rounded-[18px] border border-slate-600 bg-[#0b1020] p-6">
+            <div class="flex gap-4">
+              <div class="h-10 w-10 rounded-full bg-violet-600"></div>
+              <div>
+                <p class="text-[14px] font-medium text-slate-300">
+                  {{ latestSuggestion?.answer?.slice(0, 72) || 'Answer with a layered tradeoff model.' }}
+                </p>
+                <p class="mt-3 text-[13px] font-medium text-slate-500">
+                  {{ latestSuggestion?.keyPoints?.slice(0, 3).join(', ') || 'Latency, correctness, cost, operations.' }}
+                </p>
+              </div>
+            </div>
+            <div class="mt-9 border-t border-[#263347] pt-7">
+              <div class="flex items-center gap-4">
+                <span class="text-[11px] font-bold text-slate-400">Confidence</span>
+                <div class="h-3 flex-1 rounded-full bg-slate-800">
+                  <div class="h-full rounded-full bg-emerald-500" :style="{ width: `${Math.round((latestSuggestion?.confidence ?? 0.8) * 100)}%` }"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="h-[300px] rounded-2xl border border-[#263347] bg-[#0e1422] p-8">
+          <h3 class="text-[18px] font-bold text-slate-50">Status indicators</h3>
+          <div class="mt-9 space-y-7 text-[14px] font-medium text-slate-300">
+            <p class="flex items-center justify-between">Capture verified <span class="h-4 w-4 rounded-full" :class="isScreenSharing ? 'bg-emerald-500' : 'bg-slate-600'"></span></p>
+            <p class="flex items-center justify-between">Socket connected <span class="h-4 w-4 rounded-full bg-emerald-500"></span></p>
+            <p class="flex items-center justify-between">Invisible credits <span>245</span></p>
+            <p class="flex items-center justify-between">Current stage <span>{{ sessionStore.liveQuestionType || 'System design' }}</span></p>
+          </div>
+        </section>
+      </aside>
     </section>
 
     <section class="flex flex-wrap items-center gap-3">
       <button
-        class="inline-flex min-w-44 items-center justify-center gap-2 rounded-lg bg-cyan-600 px-5 py-3 font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+        class="im-button im-button-primary inline-flex min-w-44 disabled:cursor-wait disabled:opacity-60"
         :disabled="startingInterview || isRunning || sessionStore.activeSession.status !== 'active'"
         @click="startInterview"
       >
-        <ArrowPathIcon v-if="startingInterview" class="h-5 w-5 animate-spin" />
+        <ArrowPathIcon v-if="startingInterview" class="h-5 w-5" />
         <MicrophoneIcon v-else class="h-5 w-5" />
         {{ isRunning ? 'Interview Running' : startingInterview ? 'Starting...' : 'Start Interview' }}
       </button>
       <button
         v-if="isRunning"
-        class="inline-flex min-w-40 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 py-3 font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+        class="im-button inline-flex min-w-40"
         @click="stopInterview"
       >
         <StopCircleIcon class="h-5 w-5" />
@@ -820,7 +1160,7 @@ onBeforeUnmount(() => {
       </button>
       <button
         v-if="sessionStore.activeSession.status === 'active'"
-        class="inline-flex min-w-40 items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 py-3 font-semibold text-white disabled:opacity-60"
+        class="im-button inline-flex min-w-40 border-rose-400/20 bg-rose-500/20 text-rose-100 disabled:opacity-60"
         :disabled="endingSession"
         @click="endSession"
       >
@@ -830,20 +1170,26 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- Source picker modal (Electron only) -->
+    <StealthScreenSharingDialog
+      v-if="showStealthDialog"
+      v-model:remember="rememberStealthChoice"
+      @choose="chooseStealthMode"
+    />
+
     <div
       v-if="showSourcePicker"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      @click.self="showSourcePicker = false"
+      @click.self="cancelSourcePicker"
     >
-      <div class="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <div class="im-card w-full max-w-2xl p-6">
         <h3 class="text-lg font-bold">Select a screen or window to share</h3>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Interview Mate AI will capture this source to detect questions and code.</p>
+        <p class="mt-1 text-sm text-slate-500">Interview Mate AI will capture this source to detect questions and code.</p>
 
         <div class="mt-5 grid max-h-420px grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
           <button
             v-for="src in availableSources"
             :key="src.id"
-            class="flex flex-col items-center gap-2 rounded-lg border border-slate-200 p-3 text-left transition hover:border-cyan-500 hover:shadow-md dark:border-slate-700 dark:hover:border-cyan-500"
+            class="im-card-soft flex flex-col items-center gap-2 p-3 text-left transition hover:border-cyan-300/50"
             @click="pickSource(src)"
           >
             <div class="h-24 w-full overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
@@ -853,16 +1199,16 @@ onBeforeUnmount(() => {
                 :alt="src.name"
                 class="h-full w-full object-cover"
               />
-              <div v-else class="flex h-full items-center justify-center text-xs text-slate-400">No preview</div>
+              <div v-else class="flex h-full items-center justify-center text-xs text-slate-500">No preview</div>
             </div>
-            <span class="w-full truncate text-center text-xs font-semibold text-slate-700 dark:text-slate-200">{{ src.name }}</span>
+            <span class="w-full truncate text-center text-xs font-semibold text-slate-200">{{ src.name }}</span>
           </button>
         </div>
 
         <div class="mt-5 flex justify-end">
           <button
-            class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            @click="showSourcePicker = false"
+            class="im-button"
+            @click="cancelSourcePicker"
           >
             Cancel — continue audio only
           </button>

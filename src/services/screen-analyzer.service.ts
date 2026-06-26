@@ -139,7 +139,12 @@ class ScreenAnalyzerService {
     }
     console.info('[ScreenCapture] started', { source: source.name, sourceId: source.id })
     const constraints = {
-      audio: false,
+      audio: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: source.id,
+        },
+      },
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
@@ -148,7 +153,15 @@ class ScreenAnalyzerService {
         },
       },
     } as unknown as MediaStreamConstraints
-    this.stream = await navigator.mediaDevices.getUserMedia(constraints)
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (error) {
+      console.warn('[Voice] System audio unavailable; falling back to video-only capture', error)
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: constraints.video,
+      } as unknown as MediaStreamConstraints)
+    }
     this.video = document.createElement('video')
     this.video.srcObject = this.stream
     this.video.muted = true

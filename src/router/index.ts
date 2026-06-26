@@ -3,10 +3,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
 import AppLayout from '@/layouts/AppLayout.vue'
 import HistoryView from '../views/HistoryView.vue'
-import SettingsView from '../views/SettingsView.vue'
 import SessionView from '../views/SessionView.vue'
 import CompanionView from '../views/CompanionView.vue'
 import InvisibleSubscriptionView from '../views/InvisibleSubscriptionView.vue'
+import DashboardView from '../views/DashboardView.vue'
+import PaymentView from '../views/PaymentView.vue'
+import SupportView from '../views/SupportView.vue'
 
 const routes = [
   {
@@ -20,6 +22,12 @@ const routes = [
     component: AppLayout,
     children: [
       {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: DashboardView,
+        meta: { title: 'Dashboard', requiresAuth: true },
+      },
+      {
         path: 'sessions/:id',
         name: 'session',
         component: SessionView,
@@ -32,16 +40,22 @@ const routes = [
         meta: { title: 'History', requiresAuth: true },
       },
       {
-        path: 'settings',
-        name: 'settings',
-        component: SettingsView,
-        meta: { title: 'Settings', requiresAuth: true },
-      },
-      {
         path: 'invisible',
         name: 'invisible',
         component: InvisibleSubscriptionView,
         meta: { title: 'Invisible', requiresAuth: true },
+      },
+      {
+        path: 'payment',
+        name: 'payment',
+        component: PaymentView,
+        meta: { title: 'Payment', requiresAuth: true },
+      },
+      {
+        path: 'support',
+        name: 'support',
+        component: SupportView,
+        meta: { title: 'Support', requiresAuth: true },
       },
     ],
   },
@@ -70,7 +84,7 @@ router.beforeEach((to) => {
   }
 
   if (to.name === 'login' && hasSession) {
-    return { name: 'session', params: { id: 'new' } }
+    return { name: 'dashboard' }
   }
 })
 

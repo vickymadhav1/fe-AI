@@ -118,6 +118,40 @@ export interface Suggestion {
   confidence: number
   promptDebug: string
   createdAt: string
+  live?: boolean
+  sequence?: number
+}
+
+export interface VoicePartial {
+  sessionId: string
+  text: string
+  isFinal: boolean
+  source: 'system' | 'microphone' | 'unknown'
+  confidence: number
+}
+
+export interface VoiceQuestionDraft {
+  sessionId: string
+  sequence: number
+  question: string
+  source: 'voice'
+  audioSource: 'system' | 'microphone' | 'unknown'
+  classification: {
+    type: Suggestion['type']
+    confidence: number
+  }
+  confidence: number
+  partial: boolean
+}
+
+export interface VoiceAnswerChunk {
+  sessionId: string
+  sequence: number
+  question: string
+  answer: string
+  provider?: string
+  confidence: number
+  done: boolean
 }
 
 export interface ScreenContext {

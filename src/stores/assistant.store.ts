@@ -8,6 +8,7 @@ export const useAssistantStore = defineStore('assistant', {
     currentQuestion: '',
     latestScreenContext: null as ScreenContext | null,
     generating: false,
+    liveSuggestion: null as Suggestion | null,
   }),
   actions: {
     async load(sessionId: string) {
@@ -18,11 +19,17 @@ export const useAssistantStore = defineStore('assistant', {
     add(suggestion: Suggestion) {
       const normalized = this.normalizeSuggestion(suggestion)
       this.currentQuestion = suggestion.question
+      this.liveSuggestion = null
       this.suggestions = [
         ...this.suggestions.filter((item) => item.id !== suggestion.id),
         normalized,
       ]
       this.generating = false
+    },
+    updateLiveSuggestion(suggestion: Suggestion) {
+      this.liveSuggestion = this.normalizeSuggestion(suggestion)
+      this.currentQuestion = suggestion.question
+      this.generating = !suggestion.answer.trim()
     },
     normalizeSuggestion(suggestion: Suggestion): Suggestion {
       const confidence = Number(suggestion.confidence)
@@ -46,6 +53,7 @@ export const useAssistantStore = defineStore('assistant', {
       this.currentQuestion = ''
       this.latestScreenContext = null
       this.generating = false
+      this.liveSuggestion = null
     },
   },
 })

@@ -28,6 +28,11 @@ export interface InterviewState {
   activeWindowTitle: string
   sourceId: string
   sourceName: string
+  voiceSource: 'system' | 'microphone' | 'unknown'
+  voiceStatus: 'idle' | 'connected' | 'speaking' | 'question' | 'streaming'
+  liveQuestion: string
+  liveAnswer: string
+  liveQuestionType: string
 }
 
 export const useSessionStore = defineStore('sessions', {
@@ -57,6 +62,11 @@ export const useSessionStore = defineStore('sessions', {
     activeWindowTitle: '',
     sourceId: '',
     sourceName: '',
+    voiceSource: 'unknown',
+    voiceStatus: 'idle',
+    liveQuestion: '',
+    liveAnswer: '',
+    liveQuestionType: '',
   }),
   actions: {
     async fetchSessions() {
@@ -130,6 +140,36 @@ export const useSessionStore = defineStore('sessions', {
     updateTranscript(item: Transcript) {
       this.transcript = item.text
     },
+    updateVoicePartial(text: string, source: InterviewState['voiceSource']) {
+      this.voiceSource = source
+      this.voiceStatus = text.trim() ? 'speaking' : 'connected'
+      this.liveQuestion = text
+      this.currentQuestion = text
+    },
+    updateVoiceQuestion(question: string, type: string, source: InterviewState['voiceSource']) {
+      this.voiceSource = source
+      this.voiceStatus = 'question'
+      this.liveQuestion = question
+      this.liveQuestionType = type
+      this.currentQuestion = question
+    },
+    updateVoiceAnswer(question: string, answer: string, confidence: number, provider = '') {
+      this.voiceStatus = 'streaming'
+      this.liveQuestion = question
+      this.currentQuestion = question
+      this.liveAnswer = answer
+      this.answer = answer
+      this.confidence = Number.isFinite(confidence)
+        ? Math.max(answer.trim() ? 0.7 : 0, Math.min(1, confidence))
+        : this.confidence
+      this.provider = provider || this.provider
+    },
+    clearLiveVoice() {
+      this.voiceStatus = this.isListening ? 'connected' : 'idle'
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
+    },
     updateSuggestion(suggestion: Suggestion) {
       const parsedConfidence = Number(suggestion.confidence)
       this.currentQuestion = suggestion.question
@@ -192,6 +232,11 @@ export const useSessionStore = defineStore('sessions', {
       this.activeWindowTitle = ''
       this.sourceId = ''
       this.sourceName = ''
+      this.voiceSource = 'unknown'
+      this.voiceStatus = 'idle'
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
     },
   },
 })

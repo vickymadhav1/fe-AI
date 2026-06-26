@@ -5,10 +5,13 @@ import {
   desktopCapturer,
   globalShortcut,
   ipcMain,
+  Menu,
+  nativeImage,
   powerSaveBlocker,
   screen,
   session,
   systemPreferences,
+  Tray,
 } from 'electron'
 import { createServer, type Server } from 'node:http'
 import { execFile } from 'node:child_process'
@@ -16,6 +19,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import path from 'node:path'
+import { stealthBridge, type StealthResult } from './stealth/stealth-bridge.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDevelopment = process.argv.includes('--dev')
@@ -28,6 +32,10 @@ let latestResult: FloatingResult | null = null
 let powerSaveBlockerId: number | null = null
 let isQuitting = false
 let invisibleProtectionEnabled = false
+let stealthProtectionEnabled = false
+let stealthShortcut = 'Alt+Space'
+let tray: Tray | null = null
+let latestStealthResult: StealthResult | null = null
 
 interface FloatingResult {
   question: string
@@ -47,6 +55,15 @@ interface FloatingResult {
 interface ActiveMeetingWindow {
   activeMeetingApp: string
   activeWindowTitle: string
+}
+
+interface CompanionWindowState {
+  x?: number
+  y?: number
+  width: number
+  height: number
+  alwaysOnTop: boolean
+  transparency: number
 }
 
 const internalSourcePattern = /interview mate(?: ai)?/i
@@ -127,12 +144,91 @@ const detectActiveMeetingWindow = async (): Promise<ActiveMeetingWindow> => {
   return detectCaptureMeetingWindow()
 }
 
+const applyCaptureProtection = () => {
+  const enabled = invisibleProtectionEnabled || stealthProtectionEnabled
+  mainWindow?.setContentProtection(enabled)
+  floatingWindow?.setContentProtection(enabled)
+}
+
 const applyInvisibleProtection = () => {
-  mainWindow?.setContentProtection(invisibleProtectionEnabled)
-  floatingWindow?.setContentProtection(invisibleProtectionEnabled)
+  applyCaptureProtection()
+}
+
+const setStealthCaptureProtection = async (enabled: boolean) => {
+  stealthProtectionEnabled = enabled
+  latestStealthResult = enabled
+    ? stealthBridge.enable(mainWindow, floatingWindow, { reducePresence: true })
+    : stealthBridge.disable(mainWindow, floatingWindow)
+  if (!enabled && invisibleProtectionEnabled) applyCaptureProtection()
+
+  const activeWindow = await detectActiveMeetingWindow().catch(() => ({
+    activeMeetingApp: '',
+    activeWindowTitle: '',
+  }))
+  const payload = {
+    ...latestStealthResult,
+    enabled: stealthProtectionEnabled,
+    supported: latestStealthResult.captureExclusion,
+    activeMeetingApp: activeWindow.activeMeetingApp,
+    activeWindowTitle: activeWindow.activeWindowTitle,
+  }
+
+  console.info(`[Stealth] Platform: ${payload.platformName}`)
+  console.info(`[Stealth] Meeting: ${payload.activeMeetingApp || 'Not detected'}`)
+  console.info(
+    enabled
+      ? '[Stealth] Capture Protection Active'
+      : '[Stealth] Capture Protection Disabled',
+  )
+  if (enabled) {
+    console.info('[Stealth] Viewer Visibility Protection Applied')
+  }
+
+  return payload
+}
+
+const restoreStealthWindows = () => {
+  if (mainWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  if (floatingWindow) {
+    floatingWindow.show()
+  }
+  console.info('[Stealth] Windows Focused')
+}
+
+const registerStealthShortcut = (accelerator = stealthShortcut) => {
+  if (!accelerator.trim()) return { registered: false, accelerator: stealthShortcut }
+  if (stealthShortcut && globalShortcut.isRegistered(stealthShortcut)) {
+    globalShortcut.unregister(stealthShortcut)
+  }
+  stealthShortcut = accelerator.trim()
+  const registered = globalShortcut.register(stealthShortcut, restoreStealthWindows)
+  if (!registered) {
+    console.warn('[Stealth] Shortcut registration failed', { accelerator: stealthShortcut })
+  }
+  return { registered, accelerator: stealthShortcut }
+}
+
+const createStealthTray = () => {
+  if (tray) return tray
+  const icon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR4AWP4//8/AyUYTFhYGJgYGBj+QzEMDExASmBqGBoYGBgAAE79AhE6D9nBAAAAAElFTkSuQmCC',
+  )
+  tray = new Tray(icon)
+  tray.setToolTip('Interview Mate AI')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Restore Interview Mate AI', click: restoreStealthWindows },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]))
+  tray.on('click', restoreStealthWindows)
+  return tray
 }
 
 const cachePath = () => path.join(app.getPath('userData'), 'latest-result.json')
+const companionStatePath = () => path.join(app.getPath('userData'), 'companion-window-state.json')
 const debugCapturePath = () =>
   isDevelopment
     ? path.resolve(__dirname, '../debug/latest-capture.png')
@@ -149,6 +245,47 @@ const readLatestResult = async () => {
 const persistLatestResult = async () => {
   if (!latestResult) return
   await writeFile(cachePath(), JSON.stringify(latestResult), 'utf8')
+}
+
+const defaultCompanionState = (): CompanionWindowState => {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const { x, y, width } = display.workArea
+  return {
+    x: x + Math.max(20, width - 1040),
+    y: y + 20,
+    width: 1000,
+    height: 420,
+    alwaysOnTop: true,
+    transparency: 0.92,
+  }
+}
+
+const readCompanionState = async (): Promise<CompanionWindowState> => {
+  try {
+    const saved = JSON.parse(await readFile(companionStatePath(), 'utf8')) as Partial<CompanionWindowState>
+    const fallback = defaultCompanionState()
+    return {
+      ...fallback,
+      ...saved,
+      width: Math.max(700, Math.min(1400, Number(saved.width ?? fallback.width))),
+      height: Math.max(320, Math.min(900, Number(saved.height ?? fallback.height))),
+      alwaysOnTop: saved.alwaysOnTop ?? fallback.alwaysOnTop,
+      transparency: Math.max(0.45, Math.min(1, Number(saved.transparency ?? fallback.transparency))),
+    }
+  } catch {
+    return defaultCompanionState()
+  }
+}
+
+const persistCompanionState = async () => {
+  if (!floatingWindow || floatingWindow.isDestroyed()) return
+  const bounds = floatingWindow.getBounds()
+  const state: CompanionWindowState = {
+    ...bounds,
+    alwaysOnTop: floatingWindow.isAlwaysOnTop(),
+    transparency: floatingWindow.getOpacity(),
+  }
+  await writeFile(companionStatePath(), JSON.stringify(state), 'utf8')
 }
 
 const contentTypes: Record<string, string> = {
@@ -206,20 +343,19 @@ const rendererUrl = (route = '') =>
     ? `http://localhost:5173${route}`
     : `http://localhost:${desktopPort}${route}`
 
-const createFloatingWindow = () => {
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-  const { x, y, width } = display.workArea
+const createFloatingWindow = async () => {
+  const state = await readCompanionState()
   floatingWindow = new BrowserWindow({
     title: 'Interview Mate AI Companion',
-    x: x + width - 470,
-    y: y + 20,
-    width: 450,
-    height: 600,
-    minWidth: 360,
-    minHeight: 420,
-    maxWidth: 900,
-    maxHeight: 1000,
-    alwaysOnTop: true,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
+    minWidth: 700,
+    minHeight: 320,
+    maxWidth: 1400,
+    maxHeight: 900,
+    alwaysOnTop: state.alwaysOnTop,
     focusable: true,
     movable: true,
     transparent: true,
@@ -236,8 +372,9 @@ const createFloatingWindow = () => {
       backgroundThrottling: false,
     },
   })
-  floatingWindow.setAlwaysOnTop(true, 'floating')
-  floatingWindow.setContentProtection(invisibleProtectionEnabled)
+  floatingWindow.setAlwaysOnTop(state.alwaysOnTop, 'floating')
+  floatingWindow.setOpacity(state.transparency)
+  applyCaptureProtection()
   void floatingWindow.loadURL(rendererUrl('/companion'))
   floatingWindow.webContents.once('did-finish-load', () => {
     if (latestResult) {
@@ -247,11 +384,14 @@ const createFloatingWindow = () => {
   floatingWindow.on('closed', () => {
     floatingWindow = null
   })
+  floatingWindow.on('resize', () => void persistCompanionState())
+  floatingWindow.on('move', () => void persistCompanionState())
+  floatingWindow.on('always-on-top-changed', () => void persistCompanionState())
 
   return floatingWindow
 }
 
-const startCompanion = () => {
+const startCompanion = async () => {
   latestResult = null
   const emptyResult: FloatingResult = {
     question: '',
@@ -268,7 +408,7 @@ const startCompanion = () => {
     screenshotPreviewUrl:''
   }
   if (!floatingWindow) {
-    const window = createFloatingWindow()
+    const window = await createFloatingWindow()
     window.webContents.once('did-finish-load', () => {
       window.show()
       window.focus()
@@ -281,8 +421,18 @@ const startCompanion = () => {
 }
 
 const stopCompanion = () => {
+  void persistCompanionState()
   floatingWindow?.close()
   floatingWindow = null
+}
+
+const getCompanionWindowState = () => {
+  if (!floatingWindow || floatingWindow.isDestroyed()) return null
+  return {
+    ...floatingWindow.getBounds(),
+    alwaysOnTop: floatingWindow.isAlwaysOnTop(),
+    transparency: floatingWindow.getOpacity(),
+  }
 }
 
 const createWindow = () => {
@@ -302,7 +452,7 @@ const createWindow = () => {
     },
   })
   mainWindow = window
-  window.setContentProtection(invisibleProtectionEnabled)
+  applyCaptureProtection()
 
   if (isDevelopment) {
     void window.loadURL(rendererUrl())
@@ -345,12 +495,45 @@ app.whenReady().then(async () => {
   )
 
   createWindow()
+  createStealthTray()
+  registerStealthShortcut(stealthShortcut)
 
   ipcMain.handle('floating:get-latest', () => latestResult)
   ipcMain.handle('meeting:get-active-window', detectActiveMeetingWindow)
+  ipcMain.handle('stealth:restore-windows', () => {
+    restoreStealthWindows()
+    const capabilities = stealthBridge.currentPlatformCapabilities()
+    return {
+      hidden: false,
+      protected: stealthProtectionEnabled,
+      enabled: stealthProtectionEnabled,
+      supported: capabilities.captureExclusion,
+      ...capabilities,
+      platform: process.platform,
+    }
+  })
+  ipcMain.handle('stealth:set-capture-protection', async (_event, enabled: boolean) =>
+    setStealthCaptureProtection(enabled),
+  )
+  ipcMain.handle('stealth:register-shortcut', (_event, accelerator: string) =>
+    registerStealthShortcut(accelerator),
+  )
+  ipcMain.handle('stealth:get-state', () => {
+    const capabilities = stealthBridge.currentPlatformCapabilities()
+    return {
+      ...capabilities,
+      ...(latestStealthResult ?? {}),
+      hidden: false,
+      protected: stealthProtectionEnabled,
+      enabled: stealthProtectionEnabled,
+      supported: capabilities.captureExclusion,
+      shortcut: stealthShortcut,
+    }
+  })
   ipcMain.handle('invisible:set-content-protection', (_event, enabled: boolean) => {
     invisibleProtectionEnabled = enabled
     applyInvisibleProtection()
+    const capabilities = stealthBridge.currentPlatformCapabilities()
     console.info(
       enabled
         ? '[Invisible] Content Protection Applied'
@@ -358,8 +541,20 @@ app.whenReady().then(async () => {
     )
     return {
       enabled: invisibleProtectionEnabled,
-      supported: process.platform === 'darwin' || process.platform === 'win32',
+      supported: capabilities.captureExclusion,
       platform: process.platform,
+      platformName: capabilities.platformName,
+      warning: capabilities.warning,
+    }
+  })
+  ipcMain.handle('invisible:get-content-protection', () => {
+    const capabilities = stealthBridge.currentPlatformCapabilities()
+    return {
+      enabled: invisibleProtectionEnabled,
+      supported: capabilities.captureExclusion,
+      platform: process.platform,
+      platformName: capabilities.platformName,
+      warning: capabilities.warning,
     }
   })
  ipcMain.handle('capture:list-sources', async () => {
@@ -439,8 +634,20 @@ app.whenReady().then(async () => {
     void persistLatestResult()
     floatingWindow?.webContents.send('floating:result', result)
   })
-  ipcMain.on('companion:start', startCompanion)
+  ipcMain.on('companion:start', () => void startCompanion())
   ipcMain.on('companion:end', stopCompanion)
+  ipcMain.handle('companion:get-window-state', getCompanionWindowState)
+  ipcMain.handle('companion:set-always-on-top', (_event, enabled: boolean) => {
+    floatingWindow?.setAlwaysOnTop(enabled, 'floating')
+    void persistCompanionState()
+    return getCompanionWindowState()
+  })
+  ipcMain.handle('companion:set-transparency', (_event, value: number) => {
+    const opacity = Math.max(0.45, Math.min(1, Number(value)))
+    floatingWindow?.setOpacity(opacity)
+    void persistCompanionState()
+    return getCompanionWindowState()
+  })
   ipcMain.on('floating:copy-code', () => {
     if (latestResult?.code) clipboard.writeText(latestResult.code)
   })
@@ -450,7 +657,7 @@ app.whenReady().then(async () => {
   })
   app.on('activate', () => {
     if (!mainWindow) createWindow()
-    mainWindow?.show()
+    restoreStealthWindows()
   })
 })
 

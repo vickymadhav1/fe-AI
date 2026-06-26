@@ -6,24 +6,30 @@ class AudioCaptureService {
   private active = false
   private onChunk: ((audio: Blob) => void) | null = null
   private mimeType = 'audio/webm'
+  private sourceKind: 'system' | 'microphone' | 'unknown' = 'unknown'
 
   async start(
     preferSystemAudio: boolean,
     onChunk: (audio: Blob) => void,
     sharedDisplayStream?: MediaStream | null,
   ) {
+    this.stop()
     let recordingStream: MediaStream | null = null
     const sharedAudioTracks = sharedDisplayStream?.getAudioTracks() ?? []
 
     if (preferSystemAudio && sharedAudioTracks.length) {
       recordingStream = new MediaStream(sharedAudioTracks.map((track) => track.clone()))
       this.streams.push(recordingStream)
+      this.sourceKind = 'system'
+      console.info('[Voice] System Audio Connected')
     }
 
     if (!recordingStream?.getAudioTracks().length) {
       const microphone = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       this.streams.push(microphone)
       recordingStream = microphone
+      this.sourceKind = 'microphone'
+      console.info('[Voice] Microphone Connected')
     }
 
     this.mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -65,8 +71,13 @@ class AudioCaptureService {
     this.recorder = null
     this.recordingStream = null
     this.onChunk = null
+    this.sourceKind = 'unknown'
     this.streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()))
     this.streams = []
+  }
+
+  getSourceKind() {
+    return this.sourceKind
   }
 }
 

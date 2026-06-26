@@ -14,12 +14,22 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
     },
     invisible: {
         setContentProtection: (enabled) => ipcRenderer.invoke('invisible:set-content-protection', enabled),
+        getContentProtection: () => ipcRenderer.invoke('invisible:get-content-protection'),
+    },
+    stealth: {
+        restoreWindows: () => ipcRenderer.invoke('stealth:restore-windows'),
+        setCaptureProtection: (enabled) => ipcRenderer.invoke('stealth:set-capture-protection', enabled),
+        registerShortcut: (accelerator) => ipcRenderer.invoke('stealth:register-shortcut', accelerator),
+        getState: () => ipcRenderer.invoke('stealth:get-state'),
     },
     floating: {
         getLatest: () => ipcRenderer.invoke('floating:get-latest'),
         publish: (result) => ipcRenderer.send('floating:publish', result),
         start: () => ipcRenderer.send('companion:start'),
         end: () => ipcRenderer.send('companion:end'),
+        getWindowState: () => ipcRenderer.invoke('companion:get-window-state'),
+        setAlwaysOnTop: (enabled) => ipcRenderer.invoke('companion:set-always-on-top', enabled),
+        setTransparency: (value) => ipcRenderer.invoke('companion:set-transparency', value),
         copyCode: () => ipcRenderer.send('floating:copy-code'),
         onResult: (callback) => {
             const listener = (_event, result) => callback(result);

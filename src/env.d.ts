@@ -62,12 +62,22 @@ interface Window {
     }
     invisible: {
       setContentProtection(enabled: boolean): Promise<InvisibleProtectionResult>
+      getContentProtection(): Promise<InvisibleProtectionResult>
+    }
+    stealth: {
+      restoreWindows(): Promise<StealthProtectionResult>
+      setCaptureProtection(enabled: boolean): Promise<StealthProtectionResult>
+      registerShortcut(accelerator: string): Promise<{ registered: boolean; accelerator: string }>
+      getState(): Promise<StealthProtectionResult & { shortcut: string }>
     }
     floating: {
       getLatest(): Promise<FloatingResult | null>
       publish(result: FloatingResult): void
       start(): void
       end(): void
+      getWindowState(): Promise<CompanionWindowState | null>
+      setAlwaysOnTop(enabled: boolean): Promise<CompanionWindowState | null>
+      setTransparency(value: number): Promise<CompanionWindowState | null>
       copyCode(): void
       onResult(callback: (result: FloatingResult) => void): () => void
     }
@@ -145,6 +155,29 @@ interface InvisibleProtectionResult {
   enabled: boolean
   supported: boolean
   platform: string
+  platformName?: string
+  warning?: string
+}
+
+interface StealthProtectionResult {
+  hidden?: boolean
+  protected?: boolean
+  enabled: boolean
+  supported: boolean
+  platform: string
+  platformName?: string
+  nativeBridgeLoaded?: boolean
+  nativeProtection?: boolean
+  captureExclusion?: boolean
+  dockHiding?: boolean
+  taskbarHiding?: boolean
+  mainWindowProtected?: boolean
+  companionWindowProtected?: boolean
+  dockHidden?: boolean
+  taskbarHidden?: boolean
+  activeMeetingApp?: string
+  activeWindowTitle?: string
+  warning?: string
 }
 
 interface CaptureSource {
@@ -167,6 +200,15 @@ interface FloatingResult {
   lastCapture?: string
   timestamp: string
   screenshotPreviewUrl?: string
+}
+
+interface CompanionWindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  alwaysOnTop: boolean
+  transparency: number
 }
 
 interface ImportMeta {
