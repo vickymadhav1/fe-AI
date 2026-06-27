@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { api } from '@/services/api'
+import { useSessionStore } from '@/stores/session.store'
 import type { InvisibleOrderResponse, InvisibleSubscription } from '@/types'
 
 export const useSubscriptionStore = defineStore('subscription', {
@@ -21,11 +22,23 @@ export const useSubscriptionStore = defineStore('subscription', {
   },
 
   actions: {
+    syncSessionUsageBaseline(force = false) {
+      if (!this.subscription) return
+      const sessionStore = useSessionStore()
+      if (sessionStore.interviewStartTime && !force) return
+      sessionStore.setUsageBaseline({
+        remainingMinutes: this.subscription.remainingMinutes,
+        remainingCredits: this.subscription.remainingCredits,
+        creditsUsed: this.subscription.creditsUsed,
+        creditsPerMinute: this.subscription.creditsPerMinute,
+      })
+    },
     async load() {
       this.loading = true
       this.error = ''
       try {
         this.subscription = await api.getInvisibleSubscription()
+        this.syncSessionUsageBaseline()
         if (!this.subscription.active) this.invisibleModeActive = false
       } catch {
         this.error = 'Could not load Invisible subscription.'
@@ -84,9 +97,32 @@ export const useSubscriptionStore = defineStore('subscription', {
       this.deductingCredits = true
       try {
         this.subscription = await api.deductInvisibleCredits(1)
+        this.syncSessionUsageBaseline(true)
         if (!this.subscription.active || this.subscription.remainingCredits <= 0) {
           this.invisibleModeActive = false
           this.paymentStatus = 'Exhausted'
+        }
+      } finally {
+        this.deductingCredits = false
+      }
+    },
+
+    async deductMinutes(minutes: number) {
+      const wholeMinutes = Math.max(0, Math.floor(minutes))
+      if (!wholeMinutes || !this.subscription?.active || this.deductingCredits) return
+      this.deductingCredits = true
+      try {
+        let remaining = wholeMinutes
+        while (remaining > 0) {
+          const next = Math.min(60, remaining)
+          this.subscription = await api.deductInvisibleCredits(next)
+          this.syncSessionUsageBaseline(true)
+          remaining -= next
+          if (!this.subscription.active || this.subscription.remainingCredits <= 0) {
+            this.invisibleModeActive = false
+            this.paymentStatus = 'Exhausted'
+            break
+          }
         }
       } finally {
         this.deductingCredits = false

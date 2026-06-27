@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { api } from '@/services/api'
 import type { InterviewSession, ScreenContext, Suggestion, Transcript } from '@/types'
 
+let durationInterval = 0
+
 export interface InterviewState {
   sessions: InterviewSession[]
   activeSession: InterviewSession | null
@@ -33,6 +35,12 @@ export interface InterviewState {
   liveQuestion: string
   liveAnswer: string
   liveQuestionType: string
+  interviewStartTime: string
+  elapsedSeconds: number
+  purchasedMinutes: number
+  purchasedCredits: number
+  baseCreditsUsed: number
+  creditsPerMinute: number
 }
 
 export const useSessionStore = defineStore('sessions', {
@@ -67,8 +75,108 @@ export const useSessionStore = defineStore('sessions', {
     liveQuestion: '',
     liveAnswer: '',
     liveQuestionType: '',
+    interviewStartTime: '',
+    elapsedSeconds: 0,
+    purchasedMinutes: 0,
+    purchasedCredits: 0,
+    baseCreditsUsed: 0,
+    creditsPerMinute: 0,
   }),
+  getters: {
+    formattedDuration: (state) => {
+      const hours = Math.floor(state.elapsedSeconds / 3600)
+      const minutes = Math.floor((state.elapsedSeconds % 3600) / 60)
+      const seconds = state.elapsedSeconds % 60
+      return [hours, minutes, seconds]
+        .map((value) => String(value).padStart(2, '0'))
+        .join(':')
+    },
+    durationString(): string {
+      return this.formattedDuration
+    },
+    elapsedMinutes: (state) => Math.floor(state.elapsedSeconds / 60),
+    remainingSeconds: (state) =>
+      Math.max(0, Math.floor(state.purchasedMinutes * 60) - state.elapsedSeconds),
+    remainingMinutes(): number {
+      return this.remainingSeconds > 0 ? Math.ceil(this.remainingSeconds / 60) : 0
+    },
+    formattedRemainingTime(): string {
+      const minutes = Math.floor(this.remainingSeconds / 60)
+      const seconds = this.remainingSeconds % 60
+      return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+    },
+    consumedCredits: (state) => (state.elapsedSeconds / 60) * state.creditsPerMinute,
+    creditsUsed(): number {
+      return this.baseCreditsUsed + this.consumedCredits
+    },
+    remainingCredits(): number {
+      return Math.max(0, this.purchasedCredits - this.consumedCredits)
+    },
+  },
   actions: {
+    setPurchasedMinutes(minutes: number) {
+      this.purchasedMinutes = Math.max(0, Number.isFinite(minutes) ? minutes : 0)
+    },
+    setUsageBaseline(input: {
+      remainingMinutes: number
+      remainingCredits: number
+      creditsUsed: number
+      creditsPerMinute: number
+    }) {
+      this.purchasedMinutes = Math.max(0, Number.isFinite(input.remainingMinutes) ? input.remainingMinutes : 0)
+      this.purchasedCredits = Math.max(0, Number.isFinite(input.remainingCredits) ? input.remainingCredits : 0)
+      this.baseCreditsUsed = Math.max(0, Number.isFinite(input.creditsUsed) ? input.creditsUsed : 0)
+      this.creditsPerMinute = Math.max(0, Number.isFinite(input.creditsPerMinute) ? input.creditsPerMinute : 0)
+    },
+    durationStorageKey(sessionId?: string) {
+      const id = sessionId ?? this.sessionId
+      return id ? `interview-mate-duration-start:${id}` : ''
+    },
+    updateElapsedSeconds() {
+      if (!this.interviewStartTime) {
+        this.elapsedSeconds = 0
+        return
+      }
+      const startedAt = new Date(this.interviewStartTime).getTime()
+      this.elapsedSeconds = Number.isFinite(startedAt)
+        ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+        : 0
+    },
+    startDurationTimer(startTime = new Date().toISOString()) {
+      if (!this.sessionId) return
+      this.interviewStartTime = startTime
+      window.localStorage.setItem(this.durationStorageKey(), startTime)
+      this.updateElapsedSeconds()
+      this.ensureDurationInterval()
+    },
+    resumeDurationTimer(sessionId?: string) {
+      const id = sessionId ?? this.sessionId
+      if (!id) return
+      const startTime = window.localStorage.getItem(this.durationStorageKey(id))
+      if (!startTime) return
+      this.interviewStartTime = startTime
+      this.updateElapsedSeconds()
+      this.ensureDurationInterval()
+    },
+    ensureDurationInterval() {
+      if (durationInterval) return
+      durationInterval = window.setInterval(() => {
+        this.updateElapsedSeconds()
+      }, 1_000)
+    },
+    stopDurationTimer(options: { clearPersisted?: boolean } = {}) {
+      if (durationInterval) {
+        window.clearInterval(durationInterval)
+        durationInterval = 0
+      }
+      this.updateElapsedSeconds()
+      if (options.clearPersisted) {
+        const key = this.durationStorageKey()
+        if (key) window.localStorage.removeItem(key)
+        this.interviewStartTime = ''
+        this.elapsedSeconds = 0
+      }
+    },
     async fetchSessions() {
       this.loading = true
       try {
@@ -94,6 +202,7 @@ export const useSessionStore = defineStore('sessions', {
       try {
         this.activeSession = await api.getSession(id)
         this.sessionId = this.activeSession.id
+        this.resumeDurationTimer(this.activeSession.id)
         return this.activeSession
       } finally {
         this.loading = false
@@ -197,6 +306,15 @@ export const useSessionStore = defineStore('sessions', {
     },
     updateFloatingResult(result: FloatingResult) {
       const parsedConfidence = Number(result.confidence)
+      if (result.interviewStartTime) {
+        this.interviewStartTime = result.interviewStartTime
+        if (Number.isFinite(result.elapsedSeconds)) {
+          this.elapsedSeconds = Math.max(0, Math.floor(Number(result.elapsedSeconds)))
+        } else {
+          this.updateElapsedSeconds()
+        }
+        this.ensureDurationInterval()
+      }
       this.currentQuestion = result.question
       this.answer = result.answer
       this.code = result.code
@@ -206,7 +324,7 @@ export const useSessionStore = defineStore('sessions', {
       this.provider = result.provider ?? ''
       this.screenStatus = result.screenStatus ?? this.screenStatus
       this.lastCapture = result.lastCapture ?? this.lastCapture
-       this.screenshotPreviewUrl = result.screenshotPreviewUrl ?? this.screenshotPreviewUrl
+      this.screenshotPreviewUrl = result.screenshotPreviewUrl ?? this.screenshotPreviewUrl
     },
     stopInterview() {
       this.isRunning = false
@@ -250,7 +368,7 @@ export const useSessionStore = defineStore('sessions', {
       this.liveAnswer = ''
       this.liveQuestionType = ''
     },
-    clearInterviewState() {
+    clearInterviewState(options: { clearTimer?: boolean } = {}) {
       this.stopInterview()
       this.transcript = ''
       this.currentQuestion = ''
@@ -274,6 +392,7 @@ export const useSessionStore = defineStore('sessions', {
       this.liveQuestion = ''
       this.liveAnswer = ''
       this.liveQuestionType = ''
+      if (options.clearTimer) this.stopDurationTimer({ clearPersisted: true })
     },
   },
 })

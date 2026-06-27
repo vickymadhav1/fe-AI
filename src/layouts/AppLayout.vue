@@ -14,12 +14,14 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import ProfileChip from '@/components/shell/ProfileChip.vue'
 import SidebarFooter from '@/components/shell/SidebarFooter.vue'
 import { useAuthStore } from '@/stores/auth.store'
+import { useSessionStore } from '@/stores/session.store'
 import { useUiStore } from '@/stores/ui.store'
 import { googleAuth } from '@/services/google-auth'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const sessionStore = useSessionStore()
 const uiStore = useUiStore()
 
 const groups = [
@@ -50,6 +52,7 @@ const groups = [
 ]
 
 const pageTitle = computed(() => String(route.meta.title ?? 'Dashboard'))
+const showDuration = computed(() => route.path.startsWith('/sessions/') && Boolean(sessionStore.interviewStartTime))
 const displayName = computed(() => authStore.user?.name?.trim() || authStore.user?.email || 'Interview Mate AI')
 const initials = computed(() =>
   displayName.value
@@ -131,12 +134,20 @@ const logout = async () => {
     </nav>
 
     <section class="fixed left-0 right-0 top-0 z-20 h-20 border-b border-white/10 bg-[#0b111d]/90 px-6 backdrop-blur-xl lg:left-[316px]">
-      <div class="flex h-full items-center justify-between gap-4">
-        <div>
+      <div class="grid h-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+        <div class="min-w-0">
           <p class="text-[11px] font-extrabold uppercase text-cyan-300">Workspace</p>
           <h1 class="text-[24px] font-extrabold leading-tight text-slate-50">{{ pageTitle }}</h1>
         </div>
-        <div class="hidden items-center gap-3 sm:flex">
+        <div
+          v-if="showDuration"
+          class="hidden min-w-[178px] justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/[.045] px-4 py-2 text-[13px] font-extrabold text-slate-200 sm:flex"
+        >
+          <span>Duration:&nbsp;</span>
+          <span class="font-mono tabular-nums text-slate-50">{{ sessionStore.formattedDuration }}</span>
+        </div>
+        <div v-else></div>
+        <div class="hidden min-w-0 items-center justify-end gap-3 sm:flex">
           <ProfileChip :name="displayName" />
         </div>
       </div>

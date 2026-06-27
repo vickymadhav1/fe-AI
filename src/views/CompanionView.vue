@@ -1,42 +1,46 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import hljs from 'highlight.js/lib/core'
+import javascript from 'highlight.js/lib/languages/javascript'
+import python from 'highlight.js/lib/languages/python'
+import typescript from 'highlight.js/lib/languages/typescript'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { useSessionStore } from '@/stores/session.store'
 
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('python', python)
+
 const sessionStore = useSessionStore()
 const {
-  activeMeetingApp,
   answer,
   code,
   confidence,
   currentQuestion,
-  isScreenSharing,
-  lastCapture,
-  provider,
-  screenStatus,
+  formattedDuration,
   screenshotPreviewUrl,
-  voiceStatus,
 } = storeToRefs(sessionStore)
 
-const activeTab = ref<'answer' | 'code' | 'screenshot'>('answer')
-const alwaysOnTop = ref(true)
+const activeTab = ref<'answer' | 'screenshot'>('answer')
 let removeResultListener: (() => void) | undefined
 const companion = window.interviewMateDesktop?.floating
 
-const canShowCode = computed(() => Boolean(code.value?.trim()))
-const meetingLabel = computed(() => activeMeetingApp.value || 'Teams')
-const captureLabel = computed(() => (isScreenSharing.value || screenStatus.value === 'Active' ? 'Capturing' : 'Idle'))
 const compactConfidence = computed(() => `${Math.round((confidence.value || 0.8) * 100)}%`)
+const answerText = computed(() => answer.value || (currentQuestion.value ? 'Generating answer...' : 'Listening for the next interview question...'))
+const highlightedCode = computed(() => code.value ? hljs.highlightAuto(code.value).value : '')
+const bulletPoints = computed(() =>
+  answer.value
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 4),
+)
 
 onMounted(async () => {
   const savedTab = window.localStorage.getItem('interview-mate-companion-tab')
-  if (savedTab === 'answer' || savedTab === 'code' || savedTab === 'screenshot') {
+  if (savedTab === 'answer' || savedTab === 'screenshot') {
     activeTab.value = savedTab
-  }
-  const windowState = await companion?.getWindowState()
-  if (windowState) {
-    alwaysOnTop.value = windowState.alwaysOnTop
   }
   const latest = await companion?.getLatest()
   if (latest) {
@@ -67,14 +71,22 @@ onBeforeUnmount(() => {
   removeResultListener?.()
 })
 
-const setTab = (tab: 'answer' | 'code' | 'screenshot') => {
+const setTab = (tab: 'answer' | 'screenshot') => {
   activeTab.value = tab
   window.localStorage.setItem('interview-mate-companion-tab', tab)
 }
 
-const toggleAlwaysOnTop = async () => {
-  const next = await companion?.setAlwaysOnTop(!alwaysOnTop.value)
-  if (next) alwaysOnTop.value = next.alwaysOnTop
+const copyCode = () => {
+  window.interviewMateDesktop?.floating.copyCode()
+}
+
+const requestInterviewShutdown = async () => {
+  const floating = window.interviewMateDesktop?.floating
+  if (typeof floating?.requestShutdown === 'function') {
+    await floating.requestShutdown()
+    return
+  }
+  floating?.end()
 }
 
 watch(
@@ -89,162 +101,99 @@ watch(
 </script>
 
 <template>
-  <main class="relative h-screen w-screen overflow-hidden bg-transparent p-0 text-slate-50">
-    <div class="pointer-events-none absolute left-4 top-2 h-40 w-40 rounded-full bg-cyan-400/15 blur-3xl"></div>
-    <div class="pointer-events-none absolute right-8 top-6 h-56 w-56 rounded-full bg-violet-500/10 blur-3xl"></div>
-
-    <section class="flex h-full min-h-[320px] w-full min-w-[700px] flex-col rounded-[20px] border border-white/15 bg-[linear-gradient(115deg,rgba(23,32,51,.76),rgba(11,18,32,.70)_50%,rgba(5,7,11,.78))] p-3 shadow-[0_22px_56px_rgba(0,0,0,.46),0_0_40px_rgba(56,189,248,.08)] backdrop-blur-2xl">
-      <header class="flex h-[34px] shrink-0 items-center justify-between rounded-[14px] border border-white/10 bg-[#050a13]/35 px-3" style="-webkit-app-region: drag">
-        <div class="flex items-center gap-2">
-          <span class="inline-flex h-[22px] items-center gap-2 rounded-full border border-white/10 bg-white/[.055] px-3 text-[10px] font-extrabold text-slate-300">
-            <span class="h-[7px] w-[7px] rounded-full bg-cyan-300"></span>
-            {{ meetingLabel }}
-          </span>
-          <span class="inline-flex h-[22px] items-center gap-2 rounded-full border border-white/10 bg-white/[.055] px-3 text-[10px] font-extrabold text-slate-300">
-            <span class="h-[7px] w-[7px] rounded-full bg-emerald-400"></span>
-            Connected
-          </span>
-          <span class="inline-flex h-[22px] items-center gap-2 rounded-full border border-white/10 bg-white/[.055] px-3 text-[10px] font-extrabold text-slate-300">
-            <span class="h-[7px] w-[7px] rounded-full" :class="captureLabel === 'Capturing' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-            {{ captureLabel }}
-          </span>
-          <span class="inline-flex h-[22px] items-center gap-2 rounded-full border border-white/10 bg-white/[.055] px-3 text-[10px] font-extrabold text-slate-300">
-            <span class="h-[7px] w-[7px] rounded-full bg-violet-300"></span>
-            {{ voiceStatus === 'streaming' ? 'Processing' : 'Idle' }}
-          </span>
+  <main class="h-screen w-screen overflow-hidden bg-transparent p-0 companion-surface">
+    <section class="flex h-full min-h-[320px] w-full min-w-[700px] flex-col rounded-2xl border border-white/10 bg-[rgba(11,17,32,0.72)] p-3 shadow-[0_22px_56px_rgba(0,0,0,.42)] backdrop-blur-[26px]">
+      <header class="companion-titlebar flex h-10 shrink-0 items-center justify-between rounded-xl border border-white/10 bg-[rgba(17,24,39,.55)] px-3 backdrop-blur-2xl">
+        <div class="min-w-0 flex-1 truncate text-[12px] font-extrabold companion-primary">
+          Interview Mate AI
         </div>
-        <div class="flex items-center gap-1.5" style="-webkit-app-region: no-drag">
-          <button class="h-[22px] rounded-lg border border-white/10 bg-white/[.06] px-2 text-[10px] font-extrabold text-slate-300">Pin</button>
-          <button class="h-[22px] rounded-lg border border-white/10 bg-white/[.06] px-2 text-[10px] font-extrabold text-slate-300" @click="toggleAlwaysOnTop">
-            {{ alwaysOnTop ? 'Top' : 'Free' }}
+        <div class="mx-3 shrink-0 whitespace-nowrap text-[11px] font-extrabold companion-secondary">
+          Duration <span class="font-mono tabular-nums companion-primary">{{ formattedDuration }}</span>
+        </div>
+        <div class="companion-no-drag ml-4 flex shrink-0 items-center gap-1.5">
+          <button
+            class="h-7 rounded-lg border border-rose-300/20 bg-rose-500/10 px-3 text-[11px] font-extrabold text-rose-100 transition hover:bg-rose-500/20"
+            title="End interview and close Companion"
+            @click="requestInterviewShutdown"
+          >
+            Close
           </button>
-          <button class="h-[22px] w-6 rounded-lg border border-white/10 bg-white/[.06] text-slate-300">-</button>
-          <button class="h-[22px] w-6 rounded-lg border border-white/10 bg-white/[.06] text-slate-300">x</button>
         </div>
       </header>
 
-      <div class="mt-2 flex min-h-0 flex-1 flex-col rounded-2xl border border-white/10 bg-[linear-gradient(135deg,rgba(28,38,59,.56),rgba(10,16,32,.46))] p-3">
-        <div class="flex h-8 items-center rounded-xl border border-white/10 bg-white/[.045] px-1.5">
-          <button
-            class="h-5 rounded-[9px] px-6 text-[10px] font-extrabold transition"
-            :class="activeTab === 'answer' ? 'border border-cyan-200/20 bg-cyan-200/15 text-slate-100' : 'text-slate-400'"
-            @click="setTab('answer')"
-          >
-            Answer
-          </button>
-          <button
-            v-if="canShowCode"
-            class="ml-4 h-5 rounded-[9px] px-4 text-[11px] font-bold transition"
-            :class="activeTab === 'code' ? 'border border-cyan-200/20 bg-cyan-200/15 text-slate-100' : 'text-slate-400'"
-            @click="setTab('code')"
-          >
-            Code
-          </button>
-          <button
-            class="ml-4 h-5 rounded-[9px] px-4 text-[11px] font-bold transition"
-            :class="activeTab === 'screenshot' ? 'border border-cyan-200/20 bg-cyan-200/15 text-slate-100' : 'text-slate-400'"
-            @click="setTab('screenshot')"
-          >
-            Screenshot
-          </button>
-          <span class="ml-auto min-w-[180px] truncate pr-4 text-[11px] font-medium text-slate-500">
-            <span v-if="currentQuestion">{{ currentQuestion }}</span>
-            <SkeletonBlock v-else class="h-3 w-full" />
-          </span>
-        </div>
+      <div class="companion-no-drag mt-3 flex shrink-0 items-center gap-1.5 rounded-xl border border-white/10 bg-[rgba(17,24,39,.42)] p-1">
+        <button
+          class="h-7 rounded-lg px-4 text-[11px] font-extrabold transition companion-secondary"
+          :class="activeTab === 'answer' ? 'border border-white/10 bg-white/15 companion-primary' : ''"
+          @click="setTab('answer')"
+        >
+          Answer
+        </button>
+        <button
+          class="h-7 rounded-lg px-4 text-[11px] font-extrabold transition companion-secondary"
+          :class="activeTab === 'screenshot' ? 'border border-white/10 bg-white/15 companion-primary' : ''"
+          @click="setTab('screenshot')"
+        >
+          Screenshot
+        </button>
+      </div>
 
-        <div class="im-scrollbar mt-2 min-h-0 flex-1 overflow-y-auto">
-          <section v-if="activeTab === 'answer'" class="grid min-h-full gap-3 lg:grid-cols-[minmax(420px,1.6fr)_minmax(220px,.8fr)]">
-            <article class="rounded-[13px] border border-white/10 bg-white/[.05] p-4">
-              <div class="flex items-center justify-between">
-                <h2 class="text-[13px] font-extrabold text-slate-50">AI Answer</h2>
-                <div class="flex gap-1">
-                  <button class="h-[22px] rounded-lg border border-white/10 bg-white/[.06] px-2 text-[10px] font-extrabold">Copy</button>
-                  <button class="h-[22px] rounded-lg border border-white/10 bg-white/[.06] px-2 text-[10px] font-extrabold">Redo</button>
-                </div>
-              </div>
-              <p v-if="answer" class="mt-5 whitespace-pre-line text-[12.5px] font-medium leading-[21px] text-[#d7e0ea]">
-                {{ answer }}
+      <div class="companion-no-drag mt-3 min-h-0 flex-1">
+        <section v-if="activeTab === 'answer'" class="answer-layout">
+          <article class="glass-panel theory-panel im-scrollbar p-4">
+            <h2 class="text-[13px] font-extrabold companion-primary">Theory</h2>
+            <div class="mt-4">
+              <p class="text-[11px] font-extrabold uppercase companion-muted">Question</p>
+              <p class="mt-2 whitespace-pre-line text-[13px] font-bold leading-5 companion-primary">
+                {{ currentQuestion || 'Listening for interviewer audio...' }}
               </p>
-              <div v-else class="mt-5 space-y-3">
-                <SkeletonBlock class="h-4 w-[70%]" />
-                <SkeletonBlock class="h-3 w-[92%]" />
-                <SkeletonBlock class="h-3 w-[86%]" />
-                <SkeletonBlock class="h-3 w-[72%]" />
-                <SkeletonBlock class="mt-5 h-16 w-full rounded-xl" />
-              </div>
-              <div class="mt-6 flex flex-wrap items-center gap-2">
-                <template v-if="answer">
-                  <span class="rounded-full bg-teal-950/70 px-4 py-1 text-[10px] font-extrabold text-slate-300">clarity</span>
-                  <span class="rounded-full bg-blue-950/70 px-4 py-1 text-[10px] font-extrabold text-slate-300">latency</span>
-                  <span class="rounded-full bg-violet-950/70 px-4 py-1 text-[10px] font-extrabold text-slate-300">tradeoffs</span>
-                </template>
-                <template v-else>
-                  <SkeletonBlock class="h-5 w-16 rounded-full" />
-                  <SkeletonBlock class="h-5 w-20 rounded-full" />
-                  <SkeletonBlock class="h-5 w-24 rounded-full" />
-                </template>
-                <span class="ml-auto text-[10px] font-extrabold text-slate-400">{{ compactConfidence }}</span>
-              </div>
-            </article>
-
-            <div class="space-y-2">
-              <article class="rounded-[13px] border border-white/10 bg-white/[.05] p-3">
-                <h3 class="text-[13px] font-extrabold text-slate-50">Bullet summary</h3>
-                <template v-if="answer">
-                  <p class="mt-3 text-[11px] font-bold text-slate-400">Ask for constraints before choosing.</p>
-                  <p class="mt-2 text-[11px] font-bold text-slate-400">Mention tradeoffs, freshness, and cost.</p>
-                </template>
-                <template v-else>
-                  <SkeletonBlock class="mt-3 h-3 w-full" />
-                  <SkeletonBlock class="mt-2 h-3 w-4/5" />
-                  <SkeletonBlock class="mt-2 h-3 w-3/5" />
-                </template>
-              </article>
-              <article class="rounded-[13px] border border-white/10 bg-slate-950/70 p-3">
-                <h3 class="text-[13px] font-extrabold text-slate-50">Code preview</h3>
-                <pre v-if="code" class="mt-3 overflow-hidden text-[11px] font-semibold leading-[21px] text-cyan-200">{{ code }}</pre>
-                <div v-else class="mt-3 space-y-2">
-                  <SkeletonBlock class="h-3 w-11/12" />
-                  <SkeletonBlock class="h-3 w-8/12" />
-                  <SkeletonBlock class="h-3 w-10/12" />
-                </div>
-              </article>
             </div>
-          </section>
-
-          <section v-else-if="activeTab === 'code'" class="h-full rounded-[13px] border border-white/10 bg-slate-950/80 p-4">
-            <pre v-if="code" class="im-scrollbar h-full overflow-auto whitespace-pre-wrap text-[11px] font-semibold leading-[21px] text-cyan-200">{{ code }}</pre>
-            <div v-else class="space-y-3">
-              <SkeletonBlock class="h-4 w-64" />
-              <SkeletonBlock v-for="item in 10" :key="item" class="h-3 w-full" />
-              <SkeletonBlock class="h-12 w-3/4 rounded-xl" />
+            <div class="mt-4">
+              <p class="text-[11px] font-extrabold uppercase companion-muted">Explanation</p>
+              <p class="mt-2 whitespace-pre-line text-[12.5px] font-medium leading-[21px] companion-secondary">
+                {{ answerText }}
+              </p>
             </div>
-          </section>
-
-          <section v-else class="grid h-full grid-cols-[minmax(360px,1fr)_220px] gap-3">
-            <div class="overflow-hidden rounded-[13px] border border-white/10 bg-slate-950/70">
-              <img v-if="screenshotPreviewUrl" :src="screenshotPreviewUrl" alt="Latest captured screenshot" class="h-full w-full object-contain" />
-              <div v-else class="h-full bg-[linear-gradient(135deg,#0f172a,#1e293b,#020617)] p-5">
-                <SkeletonBlock class="h-full min-h-[220px] w-full rounded-[13px]" />
-              </div>
+            <div class="mt-4">
+              <p class="text-[11px] font-extrabold uppercase companion-muted">Bullet Points</p>
+              <ul v-if="bulletPoints.length" class="mt-2 space-y-2 text-[12px] font-semibold leading-5 companion-secondary">
+                <li v-for="point in bulletPoints" :key="point">&bull; {{ point }}</li>
+              </ul>
+              <SkeletonBlock v-else class="mt-2 h-14 w-full rounded-xl" />
             </div>
-            <div class="rounded-[13px] border border-white/10 bg-white/[.05] p-3 text-[11px] font-bold text-slate-400">
-              <p class="text-[13px] font-extrabold text-slate-50">Screenshot</p>
-              <p class="mt-4">Source: {{ meetingLabel }}</p>
-              <p class="mt-3">Captured: {{ lastCapture ? new Date(lastCapture).toLocaleTimeString() : 'Pending' }}</p>
-              <p class="mt-3">Status: {{ screenStatus }}</p>
-            </div>
-          </section>
-        </div>
+            <p class="mt-4 text-[11px] font-extrabold companion-muted">
+              Confidence <span class="companion-primary">{{ compactConfidence }}</span>
+            </p>
+          </article>
 
-        <footer class="mt-2 flex h-[26px] items-center rounded-full border border-white/10 bg-[#050a13]/35 px-6 text-[10px] font-extrabold text-slate-300">
-          <button>Copy</button>
-          <button class="ml-10">Refresh</button>
-          <span class="ml-16 inline-flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Invisible Mode</span>
-          <span class="ml-auto">Provider {{ provider || 'idle' }}</span>
-          <button class="ml-8">Settings</button>
-        </footer>
+          <article class="glass-panel code-panel flex flex-col p-4">
+            <div class="flex shrink-0 items-center justify-between gap-3">
+              <h2 class="text-[13px] font-extrabold companion-primary">Code</h2>
+              <button
+                v-if="code"
+                class="h-7 rounded-lg border border-white/10 bg-white/[.06] px-3 text-[11px] font-extrabold companion-secondary transition hover:bg-white/[.1]"
+                @click="copyCode"
+              >
+                Copy
+              </button>
+            </div>
+            <pre v-if="code" class="im-scrollbar mt-4 min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-slate-950/70 p-4 text-[11px] font-semibold leading-[21px] text-cyan-100"><code v-html="highlightedCode"></code></pre>
+            <div v-else class="mt-4 space-y-3">
+              <SkeletonBlock class="h-4 w-2/3" />
+              <SkeletonBlock v-for="item in 8" :key="item" class="h-3 w-full" />
+            </div>
+          </article>
+        </section>
+
+        <section v-else class="glass-panel flex h-full items-center justify-center overflow-hidden p-3">
+          <img
+            v-if="screenshotPreviewUrl"
+            :src="screenshotPreviewUrl"
+            alt="Latest OCR screenshot"
+            class="h-full w-full object-contain"
+          />
+          <SkeletonBlock v-else class="h-full min-h-[220px] w-full rounded-xl" />
+        </section>
       </div>
     </section>
   </main>
@@ -258,5 +207,85 @@ watch(
   margin: 0;
   background: transparent !important;
   overflow: hidden;
+}
+
+.companion-surface {
+  color: #fff;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.companion-titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.companion-no-drag,
+.companion-no-drag * {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.glass-panel {
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 16px;
+  background: rgb(17 24 39 / 0.55);
+  backdrop-filter: blur(24px);
+}
+
+.answer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.theory-panel,
+.code-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.companion-primary {
+  color: #fff;
+}
+
+.companion-secondary {
+  color: #d1d5db;
+}
+
+.companion-muted {
+  color: #9ca3af;
+}
+
+@media (prefers-color-scheme: light) {
+  .companion-surface {
+    color: #111827;
+    text-shadow: 0 1px 2px rgb(255 255 255 / 0.45);
+  }
+
+  .companion-surface > section {
+    background: rgb(255 255 255 / 0.72);
+  }
+
+  .glass-panel {
+    border-color: rgb(17 24 39 / 0.1);
+    background: rgb(255 255 255 / 0.62);
+  }
+
+  .companion-primary {
+    color: #111827;
+  }
+
+  .companion-secondary {
+    color: #374151;
+  }
+
+  .companion-muted {
+    color: #4b5563;
+  }
 }
 </style>

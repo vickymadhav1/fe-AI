@@ -36,6 +36,8 @@ let stealthProtectionEnabled = false
 let stealthShortcut = 'Alt+Space'
 let tray: Tray | null = null
 let latestStealthResult: StealthResult | null = null
+let companionShutdownResolve: (() => void) | null = null
+let companionShutdownTimer: NodeJS.Timeout | null = null
 
 interface FloatingResult {
   question: string
@@ -50,6 +52,11 @@ interface FloatingResult {
   lastCapture?: string
   timestamp: string
   screenshotPreviewUrl?: string
+  interviewStartTime?: string
+  elapsedSeconds?: number
+  formattedDuration?: string
+  remainingSeconds?: number
+  remainingMinutes?: number
 }
 
 interface ActiveMeetingWindow {
@@ -425,6 +432,43 @@ const stopCompanion = () => {
   floatingWindow = null
 }
 
+const minimizeCompanion = () => {
+  void persistCompanionState()
+  floatingWindow?.minimize()
+}
+
+const completeCompanionShutdown = () => {
+  if (companionShutdownTimer) {
+    clearTimeout(companionShutdownTimer)
+    companionShutdownTimer = null
+  }
+  companionShutdownResolve?.()
+  companionShutdownResolve = null
+  stopCompanion()
+}
+
+const requestInterviewShutdown = () =>
+  new Promise<void>((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      stopCompanion()
+      resolve()
+      return
+    }
+
+    companionShutdownResolve = resolve
+    if (companionShutdownTimer) clearTimeout(companionShutdownTimer)
+    companionShutdownTimer = setTimeout(() => {
+      console.warn('[Companion] shutdown completion timed out')
+      companionShutdownResolve = null
+      companionShutdownTimer = null
+      resolve()
+    }, 20_000)
+
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('companion:shutdown-requested')
+  })
+
 const getCompanionWindowState = () => {
   if (!floatingWindow || floatingWindow.isDestroyed()) return null
   return {
@@ -640,7 +684,16 @@ app.whenReady().then(async () => {
     console.info('[CompanionSync] IPC update forwarded')
   })
   ipcMain.on('companion:start', () => void startCompanion())
-  ipcMain.on('companion:end', stopCompanion)
+  ipcMain.on('companion:end', (event) => {
+    if (floatingWindow && event.sender === floatingWindow.webContents) {
+      void requestInterviewShutdown()
+      return
+    }
+    stopCompanion()
+  })
+  ipcMain.on('companion:minimize', minimizeCompanion)
+  ipcMain.handle('companion:request-shutdown', requestInterviewShutdown)
+  ipcMain.on('companion:shutdown-complete', completeCompanionShutdown)
   ipcMain.handle('companion:get-window-state', getCompanionWindowState)
   ipcMain.handle('companion:set-always-on-top', (_event, enabled: boolean) => {
     floatingWindow?.setAlwaysOnTop(enabled, 'floating')

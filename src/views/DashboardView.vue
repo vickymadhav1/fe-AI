@@ -99,14 +99,39 @@ const initials = computed(() =>
     .join(''),
 )
 const subscriptionLabel = computed(() => (subscription.value?.active ? 'Premium' : 'Free'))
+const activeUsage = computed(() => Boolean(sessionStore.interviewStartTime && sessionStore.isRunning))
+const formatUsageNumber = (value: number) =>
+  Number.isInteger(value) ? value : Number(value.toFixed(2))
+const displayedCreditsRemaining = computed(() => {
+  if (activeUsage.value) return formatUsageNumber(sessionStore.remainingCredits)
+  return subscription.value?.remainingCredits ?? dashboardStatistics.value?.wallet.creditsRemaining ?? 'Unavailable'
+})
+const displayedMinutesRemaining = computed(() => {
+  if (activeUsage.value) return sessionStore.formattedRemainingTime
+  return subscription.value?.remainingMinutes !== undefined
+    ? Math.ceil(subscription.value.remainingMinutes)
+    : dashboardStatistics.value?.wallet.minutesRemaining ?? 'Unavailable'
+})
+const displayedCreditsUsed = computed(() => {
+  if (activeUsage.value) return formatUsageNumber(sessionStore.creditsUsed)
+  return subscription.value?.creditsUsed ?? dashboardStatistics.value?.wallet.creditsUsed ?? 'Unavailable'
+})
 const subscriptionProgress = computed(() => {
+  if (activeUsage.value && subscription.value?.totalCredits) {
+    return Math.min(
+      100,
+      Math.max(0, Math.round((sessionStore.remainingCredits / subscription.value.totalCredits) * 100)),
+    )
+  }
   if (dashboardStatistics.value) return dashboardStatistics.value.invisibleUsage.progress
   const total = subscription.value?.totalCredits ?? 0
   const remaining = subscription.value?.remainingCredits ?? 0
   return total > 0 ? Math.min(100, Math.round((remaining / total) * 100)) : 0
 })
 const currentStatus = computed(() =>
-  dashboardStatistics.value?.currentSession.running ? 'Running' : 'Ready for interview',
+  sessionStore.isRunning || dashboardStatistics.value?.currentSession.running
+    ? 'Running'
+    : 'Ready for interview',
 )
 const protectionActive = computed(
   () => subscriptionStore.invisibleModeActive && sessionStore.isRunning,
@@ -122,21 +147,21 @@ const kpiItems = computed<DashboardKpi[]>(() => [
   {
     id: 'credits',
     title: 'Credits Remaining',
-    value: dashboardStatistics.value?.wallet.creditsRemaining ?? 'Unavailable',
+    value: displayedCreditsRemaining.value,
     icon: BanknotesIcon,
     helper: 'Available',
   },
   {
     id: 'minutes',
     title: 'Minutes Remaining',
-    value: dashboardStatistics.value?.wallet.minutesRemaining ?? 'Unavailable',
+    value: displayedMinutesRemaining.value,
     icon: ClockIcon,
     helper: 'Available',
   },
   {
     id: 'credits-used',
     title: 'Credits Used',
-    value: dashboardStatistics.value?.wallet.creditsUsed ?? 'Unavailable',
+    value: displayedCreditsUsed.value,
     icon: CreditCardIcon,
     helper: 'Consumed',
   },
@@ -263,7 +288,7 @@ const kpiItems = computed<DashboardKpi[]>(() => [
           </div>
           <div class="mt-5">
             <div class="flex justify-between text-[12px] font-semibold text-slate-400">
-              <span>{{ subscription?.remainingCredits ?? 0 }} credits remaining</span>
+              <span>{{ displayedCreditsRemaining }} credits remaining</span>
               <span>{{ subscriptionProgress }}%</span>
             </div>
             <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">

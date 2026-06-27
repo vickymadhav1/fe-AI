@@ -56,9 +56,15 @@ const transcriptPanel = ref<HTMLElement | null>(null)
 const isNew = computed(() => route.params.id === 'new')
 const totalHistoryCount = computed(() => sessionStore.sessions.length)
 const historySummaryLoading = computed(() => sessionStore.loading && !sessionStore.sessions.length)
-const creditsRemaining = computed(() => subscriptionStore.subscription?.remainingCredits ?? 0)
-const minutesRemaining = computed(() =>
-  Math.floor(subscriptionStore.subscription?.remainingMinutes ?? 0),
+const formatUsageNumber = (value: number) => (Number.isInteger(value) ? value : Number(value.toFixed(2)))
+const creditsRemaining = computed(() =>
+  sessionStore.interviewStartTime
+    ? formatUsageNumber(sessionStore.remainingCredits)
+    : subscriptionStore.subscription?.remainingCredits ?? 0,
+)
+const minutesRemaining = computed(() => sessionStore.remainingMinutes)
+const minutesRemainingLabel = computed(() =>
+  sessionStore.interviewStartTime ? sessionStore.formattedRemainingTime : sessionStore.remainingMinutes,
 )
 const latestSuggestion = computed(() => assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1) ?? null)
 const activeRequests = new Set<AbortController>()
@@ -72,6 +78,33 @@ const hasCurrentOutput = computed(
     Boolean(sessionStore.code) ||
     Boolean(sessionStore.lastCapture) ||
     Boolean(sessionStore.screenshotPreviewUrl),
+)
+const shouldShowTranscriptWaiting = computed(
+  () =>
+    !transcriptStore.items.length &&
+    !transcriptStore.interimText &&
+    (startingInterview.value ||
+      clearingCurrentInterview.value ||
+      transcribing.value ||
+      isRunning.value ||
+      Boolean(activeRealtimeSessionId && !socket.connected)),
+)
+const shouldShowAnswerWaiting = computed(
+  () =>
+    !latestSuggestion.value &&
+    activeTab.value !== 'screenshot' &&
+    (startingInterview.value ||
+      clearingCurrentInterview.value ||
+      assistantStore.generating ||
+      analyzingScreen.value ||
+      transcribing.value ||
+      isRunning.value ||
+      Boolean(activeRealtimeSessionId && !socket.connected)),
+)
+const waitingTitle = computed(() =>
+  assistantStore.generating || analyzingScreen.value
+    ? 'Waiting for interview question...'
+    : 'Listening for interviewer audio...',
 )
 
 // Source picker state
@@ -89,10 +122,15 @@ let activeMeetingPollTimer = 0
 let capturePausedForUnsupportedWindow = false
 let stealthModeActive = false
 let pendingStealthMode = false
+let stealthPromptSessionId = ''
+let stealthPromptChoice: boolean | null = null
 let previousInvisibleState = false
 let resolveStealthDialog: ((enabled: boolean) => void) | null = null
 let liveVoiceSequence = 0
 let speechFinalTimer = 0
+let realtimeLifecycleLoggingRegistered = false
+let activeRealtimeSessionId = ''
+let removeCompanionShutdownListener: (() => void) | undefined
 
 const safeConfidence = (value: unknown) => {
   const confidence = Number(value)
@@ -173,6 +211,11 @@ const publishCompanionState = (payload: {
     screenStatus: sessionStore.screenStatus,
     lastCapture: sessionStore.lastCapture,
     screenshotPreviewUrl: sessionStore.screenshotPreviewUrl ?? '',
+    interviewStartTime: sessionStore.interviewStartTime,
+    elapsedSeconds: sessionStore.elapsedSeconds,
+    formattedDuration: sessionStore.formattedDuration,
+    remainingSeconds: sessionStore.remainingSeconds,
+    remainingMinutes: sessionStore.remainingMinutes,
     timestamp: new Date().toISOString(),
   }
   console.info('[CompanionSync] update sent', {
@@ -227,10 +270,96 @@ const removeSocketListeners = () => {
   socket.off('server:error')
 }
 
+const registerRealtimeLifecycleLogging = () => {
+  if (realtimeLifecycleLoggingRegistered) return
+  realtimeLifecycleLoggingRegistered = true
+  socket.on('connect', () => {
+    console.info('[Realtime] socket connected', {
+      id: socket.id,
+      connected: socket.connected,
+      sessionId: activeRealtimeSessionId,
+    })
+    if (activeRealtimeSessionId) {
+      socket.emit('session:join', { sessionId: activeRealtimeSessionId })
+    }
+  })
+  socket.on('disconnect', (reason) => {
+    console.warn('[Realtime] socket disconnected', {
+      id: socket.id,
+      connected: socket.connected,
+      reason,
+      sessionId: activeRealtimeSessionId,
+    })
+  })
+  socket.io.on('reconnect_attempt', (attempt) => {
+    console.info('[Realtime] reconnect attempt', { attempt })
+  })
+  socket.io.on('reconnect', (attempt) => {
+    console.info('[Realtime] socket reconnected', {
+      id: socket.id,
+      connected: socket.connected,
+      attempt,
+      sessionId: activeRealtimeSessionId,
+    })
+  })
+  socket.on('connect_error', (error) => {
+    console.warn('[Realtime] connect error', {
+      message: error.message,
+      connected: socket.connected,
+    })
+  })
+}
+
+const ensureRealtimeConnected = (sessionId: string, timeoutMs = 3_000) =>
+  new Promise<boolean>((resolve) => {
+    registerRealtimeLifecycleLogging()
+    activeRealtimeSessionId = sessionId
+    console.info('[Realtime] ensure connection', {
+      sessionId,
+      connected: socket.connected,
+      id: socket.id,
+    })
+
+    if (socket.connected) {
+      socket.emit('session:join', { sessionId })
+      resolve(true)
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      cleanup()
+      console.warn('[Realtime] ensure connection timed out', {
+        sessionId,
+        connected: socket.connected,
+      })
+      resolve(socket.connected)
+    }, timeoutMs)
+    const cleanup = () => {
+      window.clearTimeout(timeout)
+      socket.off('connect', onConnect)
+      socket.off('connect_error', onConnectError)
+    }
+    const onConnect = () => {
+      cleanup()
+      socket.emit('session:join', { sessionId })
+      resolve(true)
+    }
+    const onConnectError = () => {
+      cleanup()
+      resolve(false)
+    }
+
+    socket.once('connect', onConnect)
+    socket.once('connect_error', onConnectError)
+    socket.connect()
+  })
+
 const connectSocket = () => {
   removeSocketListeners()
+  registerRealtimeLifecycleLogging()
+  activeRealtimeSessionId = String(route.params.id)
   if (!socket.connected) socket.connect()
-  socket.emit('session:join', { sessionId: String(route.params.id) })
+  socket.emit('session:join', { sessionId: activeRealtimeSessionId })
 
   socket.on('transcript:update', (payload) => {
     const transcript = payload as Transcript
@@ -500,7 +629,7 @@ const clearCurrentInterviewState = () => {
     screenshotPreviewUrl = ''
   }
 
-  window.interviewMateDesktop?.floating.publish({
+  publishCompanionState({
     question: '',
     answer: '',
     code: '',
@@ -509,10 +638,7 @@ const clearCurrentInterviewState = () => {
     complexity: '',
     confidence: 0,
     provider: '',
-    screenStatus: sessionStore.screenStatus,
-    lastCapture: '',
-    screenshotPreviewUrl: '',
-    timestamp: new Date().toISOString(),
+    reason: 'clear-current-interview',
   })
 
   console.info('[Interview] Clear State After Update', {
@@ -535,23 +661,25 @@ const clearCurrentInterview = async () => {
     })
     return
   }
-  if (!socket.connected) {
+  console.info('[Realtime] clear interview clicked', {
+    sessionId,
+    connected: socket.connected,
+    id: socket.id,
+  })
+  clearingCurrentInterview.value = true
+  clearCurrentInterviewState()
+  if (!(await ensureRealtimeConnected(sessionId))) {
     uiStore.pushToast({
       type: 'error',
       title: 'Could not clear interview',
       description: 'The realtime connection is offline. Reconnect and try again.',
     })
+    clearingCurrentInterview.value = false
     return
   }
 
-  clearingCurrentInterview.value = true
   console.info('[Interview] Clear Event Emitted', { sessionId })
   try {
-    activeRequests.forEach((controller) => controller.abort())
-    activeRequests.clear()
-    transcribing.value = false
-    analyzingScreen.value = false
-
     const response = await new Promise<{
       success: boolean
       message?: string
@@ -565,6 +693,11 @@ const clearCurrentInterview = async () => {
         }
       }
     }>((resolve, reject) => {
+      console.info('[Realtime] clear interview emitted', {
+        sessionId,
+        connected: socket.connected,
+        id: socket.id,
+      })
       socket.timeout(15_000).emit(
         'interview:clear',
         { sessionId },
@@ -588,7 +721,6 @@ const clearCurrentInterview = async () => {
     if (response.data.session) {
       sessionStore.activeSession = response.data.session
     }
-    clearCurrentInterviewState()
     uiStore.pushToast({
       type: 'success',
       title: 'Current interview cleared',
@@ -708,8 +840,8 @@ const pickSource = async (source: CaptureSource) => {
       sessionStore.voiceSource = audioCaptureService.getSourceKind()
     }
     sessionStore.setScreenSharing(true)
-    emitInterviewStarted()
     if (pendingStealthMode) await activateStealthMode()
+    emitInterviewStarted()
     console.info('[Interview] screen capture active via source picker', source.name)
   } catch (error) {
     sessionStore.setScreenSharing(false)
@@ -729,8 +861,10 @@ const cancelSourcePicker = () => {
 }
 
 const askForStealthMode = () => {
-  if (uiStore.stealthSettings.autoEnable) return Promise.resolve(true)
-  if (!uiStore.stealthSettings.askBeforeInterview) return Promise.resolve(false)
+  const sessionId = sessionStore.activeSession?.id ?? ''
+  if (sessionId && stealthPromptSessionId === sessionId && stealthPromptChoice !== null) {
+    return Promise.resolve(stealthPromptChoice)
+  }
   console.info('[Stealth] Screen Sharing Dialog Displayed')
   showStealthDialog.value = true
   rememberStealthChoice.value = true
@@ -741,6 +875,8 @@ const askForStealthMode = () => {
 
 const chooseStealthMode = (enabled: boolean) => {
   showStealthDialog.value = false
+  stealthPromptSessionId = sessionStore.activeSession?.id ?? ''
+  stealthPromptChoice = enabled
   if (rememberStealthChoice.value) {
     uiStore.updateStealthSettings({
       autoEnable: enabled,
@@ -759,6 +895,16 @@ const activateStealthMode = async () => {
   previousInvisibleState = Boolean((await window.interviewMateDesktop?.invisible.getContentProtection())?.enabled)
   const invisibleResult = await window.interviewMateDesktop?.invisible.setContentProtection(true)
   const stealthResult = await window.interviewMateDesktop?.stealth.setCaptureProtection(true)
+  if (subscriptionStore.subscription) {
+    sessionStore.setUsageBaseline({
+      remainingMinutes: subscriptionStore.subscription.remainingMinutes,
+      remainingCredits: subscriptionStore.subscription.remainingCredits,
+      creditsUsed: subscriptionStore.subscription.creditsUsed,
+      creditsPerMinute: subscriptionStore.subscription.creditsPerMinute,
+    })
+  }
+  sessionStore.startDurationTimer()
+  subscriptionStore.setInvisibleMode(true)
   console.info('[Stealth] Protection Enabled')
   console.info('[Stealth] Main Window Protected')
   console.info('[Stealth] Companion Protected')
@@ -782,6 +928,33 @@ const restoreStealthMode = async () => {
   stealthModeActive = false
   await window.interviewMateDesktop?.stealth.setCaptureProtection(false)
   await window.interviewMateDesktop?.invisible.setContentProtection(previousInvisibleState)
+}
+
+const settleInvisibleDuration = async () => {
+  if (!sessionStore.interviewStartTime) return
+  sessionStore.updateElapsedSeconds()
+  const consumedMinutes =
+    sessionStore.elapsedSeconds > 0 ? Math.ceil(sessionStore.elapsedSeconds / 60) : 0
+  const finalDuration = {
+    interviewStartTime: sessionStore.interviewStartTime,
+    endTime: new Date().toISOString(),
+    elapsedSeconds: sessionStore.elapsedSeconds,
+    consumedMinutes,
+    consumedCredits: sessionStore.consumedCredits,
+  }
+  console.info('[Duration] Interview duration finalized', finalDuration)
+  if (consumedMinutes > 0) {
+    await subscriptionStore.deductMinutes(consumedMinutes).catch((error) => {
+      console.error('[Duration] Could not deduct consumed Invisible minutes', error)
+      uiStore.pushToast({
+        type: 'error',
+        title: 'Could not deduct interview minutes',
+        description: 'Your session duration was recorded locally, but credit deduction failed.',
+      })
+    })
+  }
+  sessionStore.stopDurationTimer({ clearPersisted: true })
+  subscriptionStore.setInvisibleMode(false)
 }
 
 const startScreenCapture = async (): Promise<'pending-picker' | 'started' | 'unavailable'> => {
@@ -992,8 +1165,13 @@ const startAudioCapture = async (runId: number) => {
   sessionStore.setListening(true)
 }
 
-const stopInterviewRuntime = async (notifyBackend = true) => {
+const stopInterviewRuntime = async (
+  notifyBackend = true,
+  options: { settleDuration?: boolean } = {},
+) => {
+  const shouldSettleDuration = options.settleDuration ?? true
   await restoreStealthMode()
+  if (shouldSettleDuration) await settleInvisibleDuration()
   if (notifyBackend && sessionStore.isRunning) await emitInterviewStopped()
   lifecycleId += 1
   activeRequests.forEach((controller) => controller.abort())
@@ -1005,6 +1183,7 @@ const stopInterviewRuntime = async (notifyBackend = true) => {
   screenAnalyzerService.stop()
   removeSocketListeners()
   socket.disconnect()
+  activeRealtimeSessionId = ''
   window.interviewMateDesktop?.floating.end()
   console.info('[Interview] Companion Closed')
   sessionStore.stopInterview()
@@ -1026,21 +1205,23 @@ const startInterview = async () => {
   startingInterview.value = true
   lifecycleId += 1
   const runId = lifecycleId
-  sessionStore.startInterview()
-  window.interviewMateDesktop?.floating.start()
-  console.info('[Interview] Companion Opened')
-  connectSocket()
-  startActiveMeetingPolling()
 
   try {
+    pendingStealthMode = await askForStealthMode()
+    if (pendingStealthMode) await activateStealthMode()
+
+    sessionStore.startInterview()
+    window.interviewMateDesktop?.floating.start()
+    console.info('[Interview] Companion Opened')
+    connectSocket()
+    startActiveMeetingPolling()
+
     // Start audio capture first (no dependency on screen)
     await startAudioCapture(runId)
     console.info('[Stealth] Permissions Granted')
-    pendingStealthMode = await askForStealthMode()
     // Then start screen capture (shows picker in Electron, background in browser)
     const screenStatus = await startScreenCapture()
     if (screenStatus !== 'pending-picker') emitInterviewStarted()
-    if (pendingStealthMode && screenStatus !== 'pending-picker') await activateStealthMode()
     console.info('[Interview] Started')
     uiStore.pushToast({ type: 'success', title: 'Interview started' })
   } catch (error) {
@@ -1060,6 +1241,13 @@ const stopInterview = async () => {
   await stopInterviewRuntime()
   console.info('[Interview] Stopped')
   uiStore.pushToast({ type: 'info', title: 'Interview stopped' })
+}
+
+const shutdownFromCompanion = async () => {
+  console.info('[Interview] Companion requested full shutdown')
+  await stopInterviewRuntime()
+  clearCurrentInterviewState()
+  uiStore.pushToast({ type: 'info', title: 'Interview stopped from Companion' })
 }
 
 const endSession = async () => {
@@ -1082,14 +1270,53 @@ watch(
   },
 )
 
+watch(
+  () => minutesRemaining.value,
+  (remaining) => {
+    if (!sessionStore.interviewStartTime || !sessionStore.isRunning || remaining > 0) return
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Invisible minutes exhausted',
+      description: 'The interview timer has stopped because no minutes remain.',
+    })
+    void stopInterviewRuntime()
+  },
+)
+
+watch(
+  () => sessionStore.elapsedSeconds,
+  () => {
+    if (!sessionStore.interviewStartTime || !sessionStore.isRunning) return
+    const latest = assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1)
+    if (latest) {
+      publishCompanionResult(latest, 'duration-tick')
+      return
+    }
+    publishCompanionState({
+      question: sessionStore.currentQuestion,
+      answer: sessionStore.answer,
+      code: sessionStore.code,
+      confidence: sessionStore.confidence,
+      provider: sessionStore.provider,
+      reason: 'duration-tick',
+    })
+  },
+)
+
 onMounted(() => {
+  removeCompanionShutdownListener = window.interviewMateDesktop?.floating.onShutdownRequested?.(() =>
+    shutdownFromCompanion(),
+  )
   void subscriptionStore.load()
+  sessionStore.resumeDurationTimer(String(route.params.id))
   if (isNew.value) void sessionStore.fetchSessions().catch(() => undefined)
   if (!isNew.value) void initializeSession(String(route.params.id))
 })
 
 onBeforeUnmount(() => {
-  void stopInterviewRuntime()
+  removeCompanionShutdownListener?.()
+  sessionStore.stopDurationTimer()
+  void stopInterviewRuntime(true, { settleDuration: false })
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
 })
 </script>
@@ -1138,7 +1365,7 @@ onBeforeUnmount(() => {
               </span>
               <div>
                 <p class="text-[12px] font-medium text-slate-400">Minutes Remaining</p>
-                <p class="mt-1 text-[24px] font-extrabold leading-none text-slate-50">{{ minutesRemaining }}</p>
+                <p class="mt-1 text-[24px] font-extrabold leading-none text-slate-50">{{ minutesRemainingLabel }}</p>
               </div>
             </div>
           </div>
@@ -1286,7 +1513,22 @@ onBeforeUnmount(() => {
             v-if="transcribing && !transcriptStore.items.length && !transcriptStore.interimText"
             class="space-y-5"
           >
+            <p class="text-[13px] font-bold text-slate-300">Listening for interviewer audio...</p>
             <article v-for="item in 4" :key="item" class="rounded-xl bg-[#0f172a] p-5">
+              <SkeletonBlock class="h-3 w-24" />
+              <SkeletonBlock class="mt-3 h-4 w-full" />
+              <SkeletonBlock class="mt-2 h-4 w-4/5" />
+            </article>
+          </div>
+          <div
+            v-else-if="shouldShowTranscriptWaiting"
+            class="space-y-5"
+          >
+            <div class="rounded-xl border border-dashed border-[#334155] bg-[#0f172a]/60 p-5">
+              <p class="text-[14px] font-bold text-slate-200">Listening for interviewer audio...</p>
+              <p class="mt-2 text-[12px] text-slate-500">Waiting for the next transcript update.</p>
+            </div>
+            <article v-for="item in 3" :key="item" class="rounded-xl bg-[#0f172a] p-5">
               <SkeletonBlock class="h-3 w-24" />
               <SkeletonBlock class="mt-3 h-4 w-full" />
               <SkeletonBlock class="mt-2 h-4 w-4/5" />
@@ -1348,11 +1590,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="im-scrollbar min-h-0 flex-1 overflow-y-auto p-6">
-          <div v-if="assistantStore.generating && !latestSuggestion" class="space-y-5">
-            <SkeletonBlock class="h-4 w-56" />
-            <SkeletonBlock class="mt-3 h-4 w-full" />
-            <SkeletonBlock class="mt-2 h-4 w-3/4" />
-          </div>
           <div
             v-if="sessionStore.liveAnswer && assistantStore.liveSuggestion?.live"
             class="mb-4 rounded-xl border border-cyan-300/20 bg-cyan-400/10 p-4"
@@ -1366,15 +1603,51 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            v-if="!latestSuggestion && !assistantStore.generating && activeTab !== 'screenshot'"
+            v-if="shouldShowAnswerWaiting"
+            class="space-y-5"
+          >
+            <template v-if="activeTab === 'answer'">
+              <div>
+                <p class="text-xs font-bold uppercase text-cyan-300">Question</p>
+                <p class="mt-2 text-xl font-semibold text-slate-100">{{ waitingTitle }}</p>
+                <SkeletonBlock class="mt-3 h-4 w-4/5" />
+              </div>
+              <div>
+                <p class="text-xs font-bold uppercase text-cyan-300">Answer</p>
+                <SkeletonBlock class="mt-3 h-4 w-full" />
+                <SkeletonBlock class="mt-2 h-4 w-11/12" />
+                <SkeletonBlock class="mt-2 h-4 w-3/4" />
+              </div>
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="im-card-soft p-4">
+                  <p class="text-xs font-bold uppercase text-slate-400">Key points</p>
+                  <SkeletonBlock class="mt-3 h-3 w-full" />
+                  <SkeletonBlock class="mt-2 h-3 w-5/6" />
+                  <SkeletonBlock class="mt-2 h-3 w-4/6" />
+                </div>
+                <div class="im-card-soft p-4">
+                  <p class="text-xs font-bold uppercase text-slate-400">Confidence</p>
+                  <SkeletonBlock class="mt-3 h-7 w-24" />
+                </div>
+              </div>
+            </template>
+            <template v-else-if="activeTab === 'code'">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs font-bold uppercase text-cyan-300">Code</p>
+                <SkeletonBlock class="h-6 w-20" />
+              </div>
+              <div class="min-h-360px rounded-lg bg-slate-950 p-4">
+                <SkeletonBlock v-for="item in 12" :key="item" class="mt-3 h-3 w-full first:mt-0" />
+              </div>
+            </template>
+          </div>
+
+          <div
+            v-if="!latestSuggestion && !shouldShowAnswerWaiting && activeTab !== 'screenshot'"
             class="flex h-full min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[#334155] px-6 text-center"
           >
-            <p class="text-[14px] font-bold text-slate-200">
-              {{ activeTab === 'code' ? 'No generated code available.' : 'No AI suggestions available.' }}
-            </p>
-            <p class="mt-2 text-[12px] text-slate-500">
-              {{ activeTab === 'code' ? 'Code will appear when a coding question is detected.' : 'Suggestions will appear once questions are detected.' }}
-            </p>
+            <p class="text-[14px] font-bold text-slate-200">{{ waitingTitle }}</p>
+            <p class="mt-2 text-[12px] text-slate-500">Suggestions will appear once questions are detected.</p>
           </div>
 
           <template v-if="activeTab === 'answer' && latestSuggestion">

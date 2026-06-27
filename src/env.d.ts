@@ -75,11 +75,14 @@ interface Window {
       publish(result: FloatingResult): void
       start(): void
       end(): void
+      minimize(): void
+      requestShutdown(): Promise<void>
       getWindowState(): Promise<CompanionWindowState | null>
       setAlwaysOnTop(enabled: boolean): Promise<CompanionWindowState | null>
       setTransparency(value: number): Promise<CompanionWindowState | null>
       copyCode(): void
       onResult(callback: (result: FloatingResult) => void): () => void
+      onShutdownRequested(callback: () => void | Promise<void>): () => void
     }
   }
   google?: {
@@ -200,6 +203,11 @@ interface FloatingResult {
   lastCapture?: string
   timestamp: string
   screenshotPreviewUrl?: string
+  interviewStartTime?: string
+  elapsedSeconds?: number
+  formattedDuration?: string
+  remainingSeconds?: number
+  remainingMinutes?: number
 }
 
 interface CompanionWindowState {
