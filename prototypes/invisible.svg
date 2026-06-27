@@ -1,0 +1,33 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1024"><stop stop-color="#070A12"/><stop offset=".45" stop-color="#101827"/><stop offset="1" stop-color="#05070B"/></linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#38BDF8"/><stop offset=".5" stop-color="#8B5CF6"/><stop offset="1" stop-color="#22C55E"/></linearGradient>
+    <style>.title{font:800 40px Inter,Arial;fill:#F8FAFC}.h2{font:700 19px Inter,Arial;fill:#F8FAFC}.body{font:500 14px Inter,Arial;fill:#CBD5E1}.muted{font:500 13px Inter,Arial;fill:#64748B}.metric{font:800 38px Inter,Arial;fill:#F8FAFC}.tiny{font:700 11px Inter,Arial;fill:#94A3B8}.card{fill:#0E1422;stroke:#263347}</style>
+  </defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/>
+  <text x="72" y="90" class="title">Invisible Mode</text><text x="72" y="122" class="body">Premium capture protection and credit wallet</text>
+  <rect x="1138" y="58" width="230" height="52" rx="26" fill="#052E2B" stroke="#0F766E"/><circle cx="1170" cy="84" r="18" fill="#2DD4BF"/><text x="1206" y="90" style="font:800 14px Inter,Arial;fill:#CCFBF1">Invisible Mode On</text>
+  <rect x="72" y="164" width="400" height="250" rx="18" class="card"/>
+  <text x="104" y="212" class="h2">Credit wallet</text><text x="104" y="274" class="metric">900</text><text x="104" y="306" class="muted">credits remaining</text>
+  <rect x="104" y="340" width="304" height="18" rx="9" fill="#1F2937"/><rect x="104" y="340" width="232" height="18" rx="9" fill="url(#glow)"/>
+  <text x="104" y="382" class="tiny">Usage rate: 5 credits per active minute</text>
+  <rect x="504" y="164" width="400" height="250" rx="18" class="card"/>
+  <text x="536" y="212" class="h2">Usage analytics</text>
+  <path d="M548 354 L612 312 L676 330 L740 276 L804 302 L868 250" stroke="#38BDF8" stroke-width="4" fill="none"/>
+  <line x1="548" y1="256" x2="872" y2="256" stroke="#263347"/><line x1="548" y1="312" x2="872" y2="312" stroke="#263347"/><line x1="548" y1="368" x2="872" y2="368" stroke="#263347"/>
+  <text x="548" y="386" class="tiny">Mon</text><text x="628" y="386" class="tiny">Tue</text><text x="708" y="386" class="tiny">Wed</text><text x="788" y="386" class="tiny">Thu</text><text x="850" y="386" class="tiny">Today</text>
+  <rect x="936" y="164" width="432" height="250" rx="18" class="card"/>
+  <text x="968" y="212" class="h2">Protection status</text>
+  <text x="968" y="264" class="body">Main window protected</text><circle cx="1328" cy="258" r="9" fill="#22C55E"/>
+  <text x="968" y="316" class="body">Companion window protected</text><circle cx="1328" cy="310" r="9" fill="#22C55E"/>
+  <text x="968" y="368" class="body">Meeting support detected</text><circle cx="1328" cy="362" r="9" fill="#F59E0B"/>
+  <rect x="72" y="456" width="1296" height="420" rx="18" class="card"/>
+  <text x="104" y="506" class="h2">Upgrade credits</text>
+  <g>
+    <rect x="104" y="546" width="282" height="272" rx="16" fill="#111827" stroke="#334155"/><text x="132" y="590" class="h2">Starter</text><text x="132" y="644" class="metric" style="font-size:32px">INR 300</text><text x="132" y="680" class="body">300 credits</text><text x="132" y="720" class="muted">60 active minutes</text><rect x="132" y="758" width="196" height="42" rx="8" fill="#F8FAFC"/><text x="194" y="785" style="font:800 13px Inter,Arial;fill:#0F172A">Upgrade</text>
+    <rect x="416" y="546" width="282" height="272" rx="16" fill="#111827" stroke="#38BDF8"/><text x="444" y="590" class="h2">Standard</text><text x="444" y="644" class="metric" style="font-size:32px">INR 600</text><text x="444" y="680" class="body">600 credits</text><text x="444" y="720" class="muted">120 active minutes</text><rect x="444" y="758" width="196" height="42" rx="8" fill="#38BDF8"/><text x="506" y="785" style="font:800 13px Inter,Arial;fill:#06202A">Upgrade</text>
+    <rect x="728" y="546" width="282" height="272" rx="16" fill="#111827" stroke="#334155"/><text x="756" y="590" class="h2">Professional</text><text x="756" y="644" class="metric" style="font-size:32px">INR 1200</text><text x="756" y="680" class="body">1200 credits</text><text x="756" y="720" class="muted">240 active minutes</text><rect x="756" y="758" width="196" height="42" rx="8" fill="#F8FAFC"/><text x="818" y="785" style="font:800 13px Inter,Arial;fill:#0F172A">Upgrade</text>
+    <rect x="1040" y="546" width="282" height="272" rx="16" fill="#111827" stroke="#334155"/><text x="1068" y="590" class="h2">Enterprise</text><text x="1068" y="644" class="metric" style="font-size:32px">INR 3000</text><text x="1068" y="680" class="body">3000 credits</text><text x="1068" y="720" class="muted">600 active minutes</text><rect x="1068" y="758" width="196" height="42" rx="8" fill="#F8FAFC"/><text x="1130" y="785" style="font:800 13px Inter,Arial;fill:#0F172A">Upgrade</text>
+  </g>
+  <rect x="72" y="908" width="1296" height="56" rx="14" fill="#0B111D" stroke="#263347"/><text x="104" y="943" class="body">Protection availability depends on operating system and meeting application support.</text>
+</svg>

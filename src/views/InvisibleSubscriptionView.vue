@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
           <SkeletonBlock class="mt-3 h-4 w-32" />
         </div> -->
       </div>
-      <div v-else class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <!-- <div v-else class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-[10px] border border-[#334155] bg-[#111827] p-4">
           <p class="text-[11px] font-bold uppercase text-slate-500">Meeting App</p>
           <p class="mt-3 text-[14px] font-bold text-slate-200">{{ sessionStore.activeMeetingApp || 'Pending' }}</p>
@@ -205,7 +205,7 @@ onBeforeUnmount(() => {
           <p class="text-[11px] font-bold uppercase text-slate-500">Protection</p>
           <p class="mt-3 text-[14px] font-bold text-slate-200">{{ protectionStatus || 'Idle' }}</p>
         </div>
-      </div>
+      </div> -->
       <p v-if="explainUnavailable() && !subscriptionStore.invisibleModeActive" class="mt-5 text-[13px] font-semibold text-amber-300">
         {{ explainUnavailable() }}
       </p>

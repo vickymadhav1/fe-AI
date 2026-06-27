@@ -6,8 +6,7 @@ const ready = ref(false)
 const isDesktopRuntime = Boolean(window.interviewMateDesktop?.isElectron)
 const runtimeLabel = isDesktopRuntime ? 'Desktop' : 'Web'
 const diagnostics = [
-  ['API', 'Connected'],
-  ['Socket', 'Ready'],
+  ['Network', navigator.onLine ? 'Online' : 'Offline'],
   ['Desktop runtime', isDesktopRuntime ? 'Electron' : 'Browser'],
   ['Platform', window.interviewMateDesktop?.platform ?? navigator.platform],
 ]
@@ -110,7 +109,6 @@ onMounted(() => {
         <div class="mt-7 space-y-4 text-[14px] font-medium text-slate-300">
           <p class="flex justify-between"><span>App</span><span>Interview Mate AI</span></p>
           <p class="flex justify-between"><span>Runtime</span><span>{{ runtimeLabel }}</span></p>
-          <p class="flex justify-between"><span>Support Pack</span><span>2026.06</span></p>
         </div>
       </article>
     </section>

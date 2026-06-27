@@ -1,0 +1,21 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1024"><stop stop-color="#080A12"/><stop offset=".55" stop-color="#111827"/><stop offset="1" stop-color="#07080D"/></linearGradient><style>.title{font:800 40px Inter,Arial;fill:#F8FAFC}.h2{font:700 19px Inter,Arial;fill:#F8FAFC}.body{font:500 14px Inter,Arial;fill:#CBD5E1}.muted{font:500 13px Inter,Arial;fill:#64748B}.tiny{font:700 11px Inter,Arial;fill:#94A3B8}.card{fill:#0E1422;stroke:#263347}.line{stroke:#263347}</style></defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/>
+  <text x="72" y="92" class="title">Interview History</text>
+  <rect x="72" y="138" width="640" height="54" rx="12" fill="#0E1422" stroke="#263347"/><text x="112" y="172" class="muted">Search interviews, roles, companies, or questions</text>
+  <rect x="736" y="138" width="144" height="54" rx="12" fill="#111827" stroke="#334155"/><text x="784" y="172" class="body">All roles</text>
+  <rect x="900" y="138" width="168" height="54" rx="12" fill="#111827" stroke="#334155"/><text x="952" y="172" class="body">Last 30 days</text>
+  <rect x="1090" y="138" width="162" height="54" rx="12" fill="#111827" stroke="#334155"/><text x="1138" y="172" class="body">Confidence</text>
+  <rect x="72" y="236" width="342" height="700" rx="18" class="card"/>
+  <text x="104" y="284" class="h2">Timeline</text>
+  <line x1="128" y1="334" x2="128" y2="854" class="line"/>
+  <g><circle cx="128" cy="350" r="9" fill="#38BDF8"/><text x="158" y="356" class="body">Today</text><text x="158" y="386" class="muted">Frontend architecture</text><circle cx="128" cy="474" r="9" fill="#8B5CF6"/><text x="158" y="480" class="body">Yesterday</text><text x="158" y="510" class="muted">System design</text><circle cx="128" cy="598" r="9" fill="#22C55E"/><text x="158" y="604" class="body">Jun 21</text><text x="158" y="634" class="muted">Behavioral round</text><circle cx="128" cy="722" r="9" fill="#F59E0B"/><text x="158" y="728" class="body">Jun 18</text><text x="158" y="758" class="muted">Coding screen</text></g>
+  <rect x="446" y="236" width="922" height="700" rx="18" class="card"/>
+  <text x="482" y="284" class="h2">Interview cards</text>
+  <g>
+    <rect x="482" y="326" width="850" height="134" rx="14" fill="#111827" stroke="#334155"/><text x="514" y="370" class="h2">Senior Frontend Engineer</text><text x="514" y="404" class="body">React performance, accessibility, state architecture</text><rect x="1118" y="358" width="150" height="34" rx="17" fill="#052E2B"/><text x="1152" y="380" class="tiny">94% confidence</text>
+    <rect x="482" y="486" width="850" height="134" rx="14" fill="#111827" stroke="#334155"/><text x="514" y="530" class="h2">Distributed Systems Screen</text><text x="514" y="564" class="body">Cache invalidation, rate limits, queues</text><rect x="1118" y="518" width="150" height="34" rx="17" fill="#172554"/><text x="1152" y="540" class="tiny">89% confidence</text>
+    <rect x="482" y="646" width="850" height="134" rx="14" fill="#111827" stroke="#334155"/><text x="514" y="690" class="h2">Product Engineering Loop</text><text x="514" y="724" class="body">Prioritization, execution, tradeoff narratives</text><rect x="1118" y="678" width="150" height="34" rx="17" fill="#3B2505"/><text x="1152" y="700" class="tiny">82% confidence</text>
+    <rect x="482" y="806" width="850" height="86" rx="14" fill="#0B111D" stroke="#263347"/><text x="514" y="856" class="body">Load more interview records</text>
+  </g>
+</svg>

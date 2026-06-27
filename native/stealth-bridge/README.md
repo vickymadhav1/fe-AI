@@ -20,6 +20,9 @@ npm run build:native-stealth
 
 The Electron app still runs if the addon is not built. In that case, `StealthBridge` reports `nativeBridgeLoaded: false` and falls back to Electron content protection with an explicit warning.
 
+The architecture report and original platform probes are colocated under `docs/`
+and `spikes/` for historical context. They are not part of the production build.
+
 ## Platform Behavior
 
 macOS:
@@ -37,4 +40,3 @@ Linux:
 
 - Reports unsupported native capture exclusion
 - Uses Electron fallback only where available
-

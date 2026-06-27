@@ -517,7 +517,7 @@
     "userconfig": "/Users/madhavatatikonda/.npmrc",
     "init_module": "/Users/madhavatatikonda/.npm-init.js",
     "globalconfig": "/usr/local/etc/npmrc",
-    "local_prefix": "/Users/madhavatatikonda/Desktop/AI-Interview/interview-assistant",
+    "local_prefix": "/Users/madhavatatikonda/Desktop/AI-Interview/frontend",
     "global_prefix": "/usr/local"
   }
 }

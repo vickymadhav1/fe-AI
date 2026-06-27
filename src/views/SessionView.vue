@@ -17,6 +17,7 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StealthScreenSharingDialog from '@/components/StealthScreenSharingDialog.vue'
 import { useAssistantStore } from '@/stores/assistant.store'
 import { useSessionStore } from '@/stores/session.store'
+import { useSubscriptionStore } from '@/stores/subscription.store'
 import { useTranscriptStore } from '@/stores/transcript.store'
 import { useUiStore } from '@/stores/ui.store'
 import type {
@@ -33,6 +34,7 @@ const router = useRouter()
 const sessionStore = useSessionStore()
 const transcriptStore = useTranscriptStore()
 const assistantStore = useAssistantStore()
+const subscriptionStore = useSubscriptionStore()
 const uiStore = useUiStore()
 const socket = getSocket()
 const { isRunning, isListening, isScreenSharing } = storeToRefs(sessionStore)
@@ -43,16 +45,29 @@ const transcribing = ref(false)
 const analyzingScreen = ref(false)
 const startingInterview = ref(false)
 const endingSession = ref(false)
+const clearingCurrentInterview = ref(false)
 const activeTab = ref<'answer' | 'code' | 'screenshot'>('answer')
 const transcriptPanel = ref<HTMLElement | null>(null)
 const isNew = computed(() => route.params.id === 'new')
 const latestSuggestion = computed(() => assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1) ?? null)
 const activeRequests = new Set<AbortController>()
+const hasCurrentOutput = computed(
+  () =>
+    transcriptStore.items.length > 0 ||
+    Boolean(transcriptStore.interimText) ||
+    Boolean(latestSuggestion.value) ||
+    Boolean(sessionStore.currentQuestion) ||
+    Boolean(sessionStore.answer) ||
+    Boolean(sessionStore.code) ||
+    Boolean(sessionStore.lastCapture) ||
+    Boolean(sessionStore.screenshotPreviewUrl),
+)
 
 // Source picker state
 const showSourcePicker = ref(false)
 const availableSources = ref<CaptureSource[]>([])
 const showStealthDialog = ref(false)
+const showClearConfirmation = ref(false)
 const rememberStealthChoice = ref(true)
 
 let lifecycleId = 0
@@ -362,6 +377,147 @@ const initializeSession = async (sessionId: string) => {
     publishCompanionResult(latestAnswer)
   }
   connectSocket()
+}
+
+const clearCurrentInterviewState = () => {
+  console.info('[Interview] Clear State Before Update', {
+    transcribing: transcribing.value,
+    analyzingScreen: analyzingScreen.value,
+    aiGenerating: assistantStore.generating,
+    transcriptLength: transcriptStore.items.length,
+    suggestionLength: assistantStore.suggestions.length,
+  })
+
+  activeRequests.forEach((controller) => controller.abort())
+  activeRequests.clear()
+  screenAnalysisQueue = Promise.resolve()
+  audioUploadQueue = Promise.resolve()
+  transcribing.value = false
+  analyzingScreen.value = false
+  transcriptStore.clear()
+  assistantStore.clear()
+  sessionStore.clearCurrentOutput()
+  activeTab.value = 'answer'
+
+  if (screenshotPreviewUrl) {
+    URL.revokeObjectURL(screenshotPreviewUrl)
+    screenshotPreviewUrl = ''
+  }
+
+  window.interviewMateDesktop?.floating.publish({
+    question: '',
+    answer: '',
+    code: '',
+    output: '',
+    language: '',
+    complexity: '',
+    confidence: 0,
+    provider: '',
+    screenStatus: sessionStore.screenStatus,
+    lastCapture: '',
+    screenshotPreviewUrl: '',
+    timestamp: new Date().toISOString(),
+  })
+
+  console.info('[Interview] Clear State After Update', {
+    transcribing: transcribing.value,
+    analyzingScreen: analyzingScreen.value,
+    aiGenerating: assistantStore.generating,
+    transcriptLength: transcriptStore.items.length,
+    suggestionLength: assistantStore.suggestions.length,
+  })
+}
+
+const clearCurrentInterview = async () => {
+  console.info('[Interview] Clear Button Clicked')
+  const sessionId = sessionStore.activeSession?.id
+  if (!sessionId) {
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Nothing to clear',
+      description: 'No active interview session is available.',
+    })
+    return
+  }
+  if (!socket.connected) {
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Could not clear interview',
+      description: 'The realtime connection is offline. Reconnect and try again.',
+    })
+    return
+  }
+
+  clearingCurrentInterview.value = true
+  console.info('[Interview] Clear Event Emitted', { sessionId })
+  try {
+    activeRequests.forEach((controller) => controller.abort())
+    activeRequests.clear()
+    transcribing.value = false
+    analyzingScreen.value = false
+
+    const response = await new Promise<{
+      success: boolean
+      message?: string
+      data?: {
+        cleared: boolean
+        session: typeof sessionStore.activeSession
+        deleted: {
+          transcripts: number
+          suggestions: number
+          screenContexts: number
+        }
+      }
+    }>((resolve, reject) => {
+      socket.timeout(15_000).emit(
+        'interview:clear',
+        { sessionId },
+        (error: Error | null, acknowledgement: typeof response) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(acknowledgement)
+        },
+      )
+    })
+    if (!response.success || !response.data?.cleared) {
+      throw new Error(response.message || 'The backend could not clear the interview state.')
+    }
+
+    console.info('[Interview] Clear Acknowledgement Received', {
+      sessionId,
+      deleted: response.data.deleted,
+    })
+    if (response.data.session) {
+      sessionStore.activeSession = response.data.session
+    }
+    clearCurrentInterviewState()
+    uiStore.pushToast({
+      type: 'success',
+      title: 'Current interview cleared',
+      description: 'Session details and account credits were preserved.',
+    })
+  } catch (error) {
+    console.error('[Interview] Clear Request Failed', error)
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Could not clear interview',
+      description:
+        error instanceof Error ? error.message : 'The realtime request failed. Try again.',
+    })
+  } finally {
+    clearingCurrentInterview.value = false
+  }
+}
+
+const requestClearCurrentInterview = () => {
+  showClearConfirmation.value = true
+}
+
+const confirmClearCurrentInterview = () => {
+  showClearConfirmation.value = false
+  void clearCurrentInterview()
 }
 
 const createSession = async () => {
@@ -748,6 +904,7 @@ const stopInterviewRuntime = async (notifyBackend = true) => {
   transcribing.value = false
   showSourcePicker.value = false
   showStealthDialog.value = false
+  showClearConfirmation.value = false
   resolveStealthDialog?.(false)
   resolveStealthDialog = null
   capturePausedForUnsupportedWindow = false
@@ -817,6 +974,7 @@ watch(
 )
 
 onMounted(() => {
+  void subscriptionStore.load()
   if (!isNew.value) void initializeSession(String(route.params.id))
 })
 
@@ -869,8 +1027,8 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <main v-else-if="sessionStore.activeSession" class="im-prototype-page flex flex-col gap-[30px]">
-    <section class="flex min-h-[82px] items-center justify-between rounded-[18px] border border-[#1e293b] bg-[#0b111d] px-8">
+  <main v-else-if="sessionStore.activeSession" class="im-prototype-page !min-h-0 h-full max-h-full overflow-hidden flex flex-col gap-4">
+    <!-- <section class="flex min-h-[82px] items-center justify-between rounded-[18px] border border-[#1e293b] bg-[#0b111d] px-8">
       <div>
         <h2 class="text-[36px] font-extrabold leading-none text-slate-50">Live Interview</h2>
         <p class="mt-2 text-[13px] font-medium text-slate-500">
@@ -910,21 +1068,40 @@ onBeforeUnmount(() => {
           {{ sessionStore.activeMeetingApp || 'Active window' }}
         </span>
       </div>
-    </section>
+    </section> -->
 
-    <section class="grid gap-8 xl:grid-cols-[360px_584px_368px]">
-      <article class="h-[836px] rounded-2xl border border-[#263347] bg-[#0e1422] flex min-h-0 flex-col">
-        <div class="border-b border-white/10 px-8 py-9">
+    <section class="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-4 lg:grid-cols-[minmax(300px,0.82fr)_minmax(380px,1.18fr)] lg:grid-rows-1">
+      <article class="min-h-0 overflow-hidden rounded-2xl border border-[#263347] bg-[#0e1422] flex flex-col">
+        <div class="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-6 py-5">
           <h3 class="text-[18px] font-bold text-slate-50">Live Transcript</h3>
+          <button
+            type="button"
+            class="inline-flex h-8 items-center justify-center rounded-lg border border-rose-400/20 bg-rose-500/[0.07] px-3 text-[12px] font-bold text-rose-200 transition hover:border-rose-300/40 hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+            :disabled="clearingCurrentInterview || !hasCurrentOutput"
+            title="Clear current transcript and AI suggestions"
+            @click="requestClearCurrentInterview"
+          >
+            Clear
+          </button>
         </div>
 
-        <div ref="transcriptPanel" class="im-scrollbar min-h-0 flex-1 space-y-6 overflow-y-auto p-8">
-          <div v-if="!transcriptStore.items.length" class="space-y-5">
+        <div ref="transcriptPanel" class="im-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+          <div
+            v-if="transcribing && !transcriptStore.items.length && !transcriptStore.interimText"
+            class="space-y-5"
+          >
             <article v-for="item in 4" :key="item" class="rounded-xl bg-[#0f172a] p-5">
               <SkeletonBlock class="h-3 w-24" />
               <SkeletonBlock class="mt-3 h-4 w-full" />
               <SkeletonBlock class="mt-2 h-4 w-4/5" />
             </article>
+          </div>
+          <div
+            v-else-if="!transcriptStore.items.length && !transcriptStore.interimText"
+            class="flex h-full min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[#334155] px-6 text-center"
+          >
+            <p class="text-[14px] font-bold text-slate-200">No transcript yet.</p>
+            <p class="mt-2 text-[12px] text-slate-500">Start an interview to begin capturing conversation.</p>
           </div>
           <article
             v-if="transcriptStore.interimText"
@@ -944,8 +1121,8 @@ onBeforeUnmount(() => {
         </div>
       </article>
 
-      <article class="h-[836px] rounded-2xl border border-[#263347] bg-[#0e1422] flex min-h-0 flex-col">
-        <div class="border-b border-white/10 px-8 py-9">
+      <article class="min-h-0 overflow-hidden rounded-2xl border border-[#263347] bg-[#0e1422] flex flex-col">
+        <div class="shrink-0 border-b border-white/10 px-6 py-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-[18px] font-bold text-slate-50">AI Suggested Answer</h3>
             <div class="inline-flex rounded-xl border border-white/10 bg-black/20 p-1">
@@ -974,8 +1151,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="im-scrollbar min-h-0 flex-1 overflow-y-auto p-8">
-          <div v-if="assistantStore.generating" class="mb-4 rounded-lg border border-cyan-200 bg-cyan-50 p-4 dark:border-cyan-900 dark:bg-cyan-950/40">
+        <div class="im-scrollbar min-h-0 flex-1 overflow-y-auto p-6">
+          <div v-if="assistantStore.generating && !latestSuggestion" class="space-y-5">
             <SkeletonBlock class="h-4 w-56" />
             <SkeletonBlock class="mt-3 h-4 w-full" />
             <SkeletonBlock class="mt-2 h-4 w-3/4" />
@@ -992,27 +1169,19 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <div v-if="!latestSuggestion" class="space-y-6">
-            <section class="space-y-5">
-              <div>
-                <SkeletonBlock class="h-3 w-20" />
-                <SkeletonBlock class="mt-3 h-7 w-4/5" />
-              </div>
-              <div>
-                <SkeletonBlock class="h-3 w-16" />
-                <SkeletonBlock class="mt-3 h-4 w-full" />
-                <SkeletonBlock class="mt-2 h-4 w-11/12" />
-                <SkeletonBlock class="mt-2 h-4 w-3/4" />
-              </div>
-              <div class="grid gap-4 md:grid-cols-2">
-                <SkeletonBlock class="h-28 rounded-xl" />
-                <SkeletonBlock class="h-28 rounded-xl" />
-              </div>
-              <SkeletonBlock class="h-16 rounded-xl" />
-            </section>
+          <div
+            v-if="!latestSuggestion && !assistantStore.generating && activeTab !== 'screenshot'"
+            class="flex h-full min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[#334155] px-6 text-center"
+          >
+            <p class="text-[14px] font-bold text-slate-200">
+              {{ activeTab === 'code' ? 'No generated code available.' : 'No AI suggestions available.' }}
+            </p>
+            <p class="mt-2 text-[12px] text-slate-500">
+              {{ activeTab === 'code' ? 'Code will appear when a coding question is detected.' : 'Suggestions will appear once questions are detected.' }}
+            </p>
           </div>
 
-          <template v-else-if="activeTab === 'answer'">
+          <template v-if="activeTab === 'answer' && latestSuggestion">
             <section class="space-y-5">
               <div>
                 <p class="text-xs font-bold uppercase text-cyan-300">Question</p>
@@ -1054,7 +1223,7 @@ onBeforeUnmount(() => {
             </section>
           </template>
 
-          <template v-else-if="activeTab === 'code'">
+          <template v-if="activeTab === 'code' && latestSuggestion">
             <section v-if="latestSuggestion.code || latestSuggestion.fix" class="space-y-4">
               <div class="flex items-center justify-between gap-3">
                 <p class="text-xs font-bold uppercase text-cyan-300">
@@ -1071,8 +1240,12 @@ onBeforeUnmount(() => {
             </div>
           </template>
 
-          <template v-else>
-            <section class="space-y-5">
+          <template v-if="activeTab === 'screenshot'">
+            <section v-if="analyzingScreen" class="space-y-5">
+              <SkeletonBlock class="h-16 w-full rounded-xl" />
+              <SkeletonBlock class="h-72 w-full rounded-xl" />
+            </section>
+            <section v-else-if="sessionStore.screenshotPreviewUrl" class="space-y-5">
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="im-card-soft p-4">
                   <p class="text-xs font-bold uppercase text-slate-400">Last screenshot</p>
@@ -1092,55 +1265,23 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div class="overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                <img v-if="sessionStore.screenshotPreviewUrl" :src="sessionStore.screenshotPreviewUrl" alt="Latest captured interview screen" class="max-h-430px w-full object-contain" />
-                <div v-else class="min-h-72 p-5">
-                  <SkeletonBlock class="h-72 w-full rounded-xl" />
-                </div>
+                <img :src="sessionStore.screenshotPreviewUrl" alt="Latest captured interview screen" class="max-h-430px w-full object-contain" />
               </div>
             </section>
+            <div
+              v-else
+              class="flex h-full min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[#334155] px-6 text-center"
+            >
+              <p class="text-[14px] font-bold text-slate-200">No screenshot analysis available.</p>
+              <p class="mt-2 text-[12px] text-slate-500">The latest analyzed capture will appear here.</p>
+            </div>
           </template>
         </div>
       </article>
 
-      <aside class="space-y-9">
-        <section class="h-[500px] rounded-2xl border border-[#263347] bg-[#0e1422] p-8">
-          <h3 class="text-[18px] font-bold text-slate-50">Floating assistant</h3>
-          <div class="mt-10 rounded-[18px] border border-slate-600 bg-[#0b1020] p-6">
-            <div class="flex gap-4">
-              <div class="h-10 w-10 rounded-full bg-violet-600"></div>
-              <div>
-                <p class="text-[14px] font-medium text-slate-300">
-                  {{ latestSuggestion?.answer?.slice(0, 72) || 'Answer with a layered tradeoff model.' }}
-                </p>
-                <p class="mt-3 text-[13px] font-medium text-slate-500">
-                  {{ latestSuggestion?.keyPoints?.slice(0, 3).join(', ') || 'Latency, correctness, cost, operations.' }}
-                </p>
-              </div>
-            </div>
-            <div class="mt-9 border-t border-[#263347] pt-7">
-              <div class="flex items-center gap-4">
-                <span class="text-[11px] font-bold text-slate-400">Confidence</span>
-                <div class="h-3 flex-1 rounded-full bg-slate-800">
-                  <div class="h-full rounded-full bg-emerald-500" :style="{ width: `${Math.round((latestSuggestion?.confidence ?? 0.8) * 100)}%` }"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="h-[300px] rounded-2xl border border-[#263347] bg-[#0e1422] p-8">
-          <h3 class="text-[18px] font-bold text-slate-50">Status indicators</h3>
-          <div class="mt-9 space-y-7 text-[14px] font-medium text-slate-300">
-            <p class="flex items-center justify-between">Capture verified <span class="h-4 w-4 rounded-full" :class="isScreenSharing ? 'bg-emerald-500' : 'bg-slate-600'"></span></p>
-            <p class="flex items-center justify-between">Socket connected <span class="h-4 w-4 rounded-full bg-emerald-500"></span></p>
-            <p class="flex items-center justify-between">Invisible credits <span>245</span></p>
-            <p class="flex items-center justify-between">Current stage <span>{{ sessionStore.liveQuestionType || 'System design' }}</span></p>
-          </div>
-        </section>
-      </aside>
     </section>
 
-    <section class="flex flex-wrap items-center gap-3">
+    <section class="flex shrink-0 flex-wrap items-center gap-3">
       <button
         class="im-button im-button-primary inline-flex min-w-44 disabled:cursor-wait disabled:opacity-60"
         :disabled="startingInterview || isRunning || sessionStore.activeSession.status !== 'active'"
@@ -1168,6 +1309,40 @@ onBeforeUnmount(() => {
         {{ endingSession ? 'Ending...' : 'End Session' }}
       </button>
     </section>
+
+    <div
+      v-if="showClearConfirmation"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="clear-interview-title"
+      @click.self="showClearConfirmation = false"
+    >
+      <div class="w-full max-w-md rounded-2xl border border-[#334155] bg-[#0e1422] p-6 shadow-2xl shadow-black/50">
+        <h3 id="clear-interview-title" class="text-[18px] font-bold text-slate-50">
+          Clear current interview?
+        </h3>
+        <p class="mt-3 text-[13px] leading-6 text-slate-400">
+          This permanently removes the current transcript, AI suggestions, code, and screenshot analysis. Session details and credits are preserved.
+        </p>
+        <div class="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            class="im-button"
+            @click="showClearConfirmation = false"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="im-button border-rose-400/25 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+            @click="confirmClearCurrentInterview"
+          >
+            Clear Interview
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Source picker modal (Electron only) -->
     <StealthScreenSharingDialog

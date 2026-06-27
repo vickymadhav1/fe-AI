@@ -11,7 +11,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useSubscriptionStore } from '@/stores/subscription.store'
 import { type StealthSettings, useUiStore } from '@/stores/ui.store'
-import type { AiProviderHealth, AiProviderStatus, InvisiblePlan } from '@/types'
+import type { AiProviderHealth, AiProviderStatus } from '@/types'
 
 const authStore = useAuthStore()
 const sessionStore = useSessionStore()
@@ -27,9 +27,9 @@ const subscription = computed(() => subscriptionStore.subscription)
 const remainingCredits = computed(() => subscription.value?.remainingCredits ?? 0)
 const totalCredits = computed(() => subscription.value?.totalCredits ?? 0)
 const creditsUsed = computed(() => subscription.value?.creditsUsed ?? 0)
-const creditsPerMinute = computed(() => subscription.value?.creditsPerMinute ?? 5)
+const creditsPerMinute = computed(() => subscription.value?.creditsPerMinute ?? 0)
 const remainingMinutes = computed(() => Math.floor(remainingCredits.value / Math.max(1, creditsPerMinute.value)))
-const currentPlan = computed(() => subscription.value?.plan?.name ?? 'Credit Wallet')
+const currentPlan = computed(() => subscription.value?.plan?.name ?? 'No active plan')
 const subscriptionStatus = computed(() => {
   const status = subscription.value?.status ?? 'inactive'
   if (status === 'active') return remainingCredits.value <= 50 ? 'Active (Credits Low)' : 'Active (Credits Available)'
@@ -38,13 +38,7 @@ const subscriptionStatus = computed(() => {
   return status
 })
 
-const fallbackPlans: InvisiblePlan[] = [
-  { id: 'invisible_starter', name: 'Starter', amount: 300, currency: 'INR', totalCredits: 300, creditsPerMinute: 5 },
-  { id: 'invisible_standard', name: 'Standard', amount: 600, currency: 'INR', totalCredits: 600, creditsPerMinute: 5 },
-  { id: 'invisible_professional', name: 'Professional', amount: 1200, currency: 'INR', totalCredits: 1200, creditsPerMinute: 5 },
-  { id: 'invisible_enterprise', name: 'Enterprise', amount: 3000, currency: 'INR', totalCredits: 3000, creditsPerMinute: 5 },
-]
-const plans = computed(() => subscription.value?.plans?.length ? subscription.value.plans : fallbackPlans)
+const plans = computed(() => subscription.value?.plans ?? [])
 const busy = computed(
   () =>
     subscriptionStore.loading ||
@@ -283,14 +277,14 @@ onMounted(() => {
     </section>
 
     <section v-else class="mt-9 grid gap-6 xl:grid-cols-[1fr_420px]">
-      <CreditStats
+      <!-- <CreditStats
         :remaining-credits="remainingCredits"
         :total-credits="totalCredits || Math.max(remainingCredits, 1)"
         :credits-used="creditsUsed"
         :credits-per-minute="creditsPerMinute"
-      />
+      /> -->
 
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-6">
+      <!-- <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-6">
         <h2 class="text-[19px] font-bold text-slate-50">Subscription</h2>
         <div class="mt-7 space-y-4 text-[14px] font-medium text-slate-300">
           <p class="flex justify-between gap-4"><span>Current Plan</span><span class="text-right text-slate-50">{{ currentPlan }}</span></p>
@@ -299,7 +293,7 @@ onMounted(() => {
           <p class="flex justify-between gap-4"><span>Consumption Rate</span><span class="text-right text-slate-50">{{ creditsPerMinute }} credits / active minute</span></p>
           <p class="flex justify-between gap-4"><span>Renewal</span><span class="text-right text-slate-50">Top up anytime</span></p>
         </div>
-      </article>
+      </article> -->
     </section>
 
     <section v-if="subscriptionStore.loading" class="mt-8 grid gap-6 xl:grid-cols-3">

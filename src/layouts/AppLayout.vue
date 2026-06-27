@@ -97,14 +97,6 @@ const logout = async () => {
         </div>
       </nav>
 
-      <!-- <div class="mt-auto rounded-2xl border border-[#263347] bg-[#101827] p-5">
-        <p class="text-[10px] font-extrabold text-slate-400">INVISIBLE WALLET</p>
-        <p class="mt-7 text-[30px] font-extrabold leading-none text-slate-50">
-          {{ authStore.credits?.remaining ?? 900 }}
-        </p>
-        <p class="mt-4 text-[12px] font-semibold text-slate-500">credits remaining</p>
-      </div> -->
-
       <div class="mt-4 flex items-center justify-between gap-2">
         <button class="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:bg-white/10 hover:text-slate-50" aria-label="Notifications">
           <BellIcon class="h-4 w-4" />

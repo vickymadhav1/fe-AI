@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ref } from 'vue'
 import { appConfig } from '@/config/app.config'
-import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
+import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, DashboardStatistics, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
 
 export const apiClient = axios.create({
   baseURL: appConfig.apiBaseUrl,
@@ -118,6 +118,19 @@ export const api = {
     (await apiClient.post<{ data: InterviewSession }>('/sessions', payload)).data.data,
   getSessions: async () =>
     (await apiClient.get<{ data: InterviewSession[] }>('/sessions')).data.data,
+  getDashboardStatistics: async () => {
+    const now = new Date()
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    return (
+      await apiClient.get<{ data: DashboardStatistics }>('/sessions/dashboard-statistics', {
+        params: {
+          dayStart: dayStart.toISOString(),
+          dayEnd: dayEnd.toISOString(),
+        },
+      })
+    ).data.data
+  },
   getSession: async (id: string) =>
     (await apiClient.get<{ data: InterviewSession }>(`/sessions/${id}`)).data.data,
   endSession: async (id: string) =>

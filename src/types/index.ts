@@ -13,6 +13,7 @@ export interface User {
   credits?: number
   createdAt?: string
   updatedAt?: string
+  lastLoginAt?: string
   role?: string
   avatarUrl?: string
 }
@@ -84,12 +85,40 @@ export interface InterviewSession {
   status: 'active' | 'completed'
   startedAt: string
   endedAt: string | null
+  interviewRunning?: boolean
+  activeRunStartedAt?: string | null
+  interviewDurationSeconds?: number
   createdAt: string
   updatedAt: string
   transcripts?: Transcript[]
   suggestions?: Suggestion[]
   screenContexts?: ScreenContext[]
   _count?: { transcripts: number; suggestions: number }
+}
+
+export interface DashboardStatistics {
+  wallet: {
+    creditsRemaining: number
+    minutesRemaining: number
+    creditsUsed: number
+    totalInterviewMinutes: number
+    todayUsageMinutes: number
+    currentSessionMinutes: number
+  }
+  interviews: {
+    total: number
+    today: number
+    completed: number
+    codingChallenges: number
+    behavioralQuestions: number
+    systemDesignQuestions: number
+    suggestionsGenerated: number
+    averageConfidence: number | null
+  }
+  currentSession: {
+    running: boolean
+    sessionId: string | null
+  }
 }
 
 export interface Transcript {

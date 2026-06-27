@@ -20,7 +20,7 @@ export const useInterviewStore = defineStore('interviews', {
     mockInterviews: (state) => state.interviews.filter((interview) => interview.type === 'Mock').length,
     successRate: (state) => {
       const scored = state.interviews.filter((interview) => typeof interview.score === 'number')
-      if (!scored.length) return 78
+      if (!scored.length) return 0
       return Math.round(scored.reduce((sum, item) => sum + (item.score ?? 0), 0) / scored.length)
     },
   },

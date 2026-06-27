@@ -213,6 +213,43 @@ export const useSessionStore = defineStore('sessions', {
       this.isListening = false
       this.isScreenSharing = false
     },
+    clearCurrentOutput() {
+      if (this.activeSession) {
+        this.activeSession = {
+          ...this.activeSession,
+          transcripts: [],
+          suggestions: [],
+          screenContexts: [],
+        }
+        const sessionIndex = this.sessions.findIndex(
+          (session) => session.id === this.activeSession?.id,
+        )
+        if (sessionIndex >= 0) {
+          this.sessions[sessionIndex] = {
+            ...this.sessions[sessionIndex]!,
+            transcripts: [],
+            suggestions: [],
+            screenContexts: [],
+            _count: { transcripts: 0, suggestions: 0 },
+          }
+        }
+      }
+      this.transcript = ''
+      this.currentQuestion = ''
+      this.answer = ''
+      this.code = ''
+      this.confidence = 0
+      this.provider = ''
+      this.lastCapture = ''
+      this.ocrStatus = 'idle'
+      this.codeDetectionStatus = 'No code detected'
+      this.detectedLanguage = ''
+      this.ocrCharacterCount = 0
+      this.screenshotPreviewUrl = ''
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
+    },
     clearInterviewState() {
       this.stopInterview()
       this.transcript = ''

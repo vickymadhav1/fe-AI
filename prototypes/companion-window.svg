@@ -1,0 +1,90 @@
+<svg width="860" height="380" viewBox="0 0 860 380" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="glass" x1="18" y1="16" x2="842" y2="364" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172033" stop-opacity=".76"/>
+      <stop offset=".5" stop-color="#0B1220" stop-opacity=".70"/>
+      <stop offset="1" stop-color="#05070B" stop-opacity=".78"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1C263B" stop-opacity=".56"/>
+      <stop offset="1" stop-color="#0A1020" stop-opacity=".46"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#38BDF8"/>
+      <stop offset=".54" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+    <linearGradient id="shot" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0F172A"/>
+      <stop offset=".45" stop-color="#1E293B"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-22%" width="124%" height="144%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#000000" flood-opacity=".46"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="20" flood-color="#38BDF8" flood-opacity=".08"/>
+    </filter>
+    <filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+    <style>
+      .title{font:800 16px Inter,Arial,sans-serif;fill:#F8FAFC}
+      .section{font:800 13px Inter,Arial,sans-serif;fill:#F8FAFC}
+      .body{font:500 12.5px Inter,Arial,sans-serif;fill:#D7E0EA}
+      .caption{font:700 11px Inter,Arial,sans-serif;fill:#93A4B8}
+      .tiny{font:800 10px Inter,Arial,sans-serif;fill:#A7B4C7}
+      .muted{font:500 11px Inter,Arial,sans-serif;fill:#6F7D91}
+      .code{font:600 11px "SF Mono",Menlo,Consolas,monospace;fill:#C4B5FD}
+      .code2{font:600 11px "SF Mono",Menlo,Consolas,monospace;fill:#67E8F9}
+      .panel{fill:url(#card);stroke:#FFFFFF;stroke-opacity:.10}
+      .button{fill:#FFFFFF;fill-opacity:.06;stroke:#FFFFFF;stroke-opacity:.10}
+      .badge{fill:#FFFFFF;fill-opacity:.055;stroke:#FFFFFF;stroke-opacity:.10}
+      .skel{fill:#FFFFFF;fill-opacity:.10}
+    </style>
+  </defs>
+
+  <rect width="860" height="380" fill="transparent"/>
+  <circle cx="108" cy="58" r="92" fill="#38BDF8" fill-opacity=".18" filter="url(#blur)"/>
+  <circle cx="760" cy="94" r="120" fill="#8B5CF6" fill-opacity=".12" filter="url(#blur)"/>
+  <rect x="18" y="16" width="824" height="348" rx="20" fill="url(#glass)" stroke="#FFFFFF" stroke-opacity=".14" filter="url(#shadow)"/>
+
+  <rect x="30" y="28" width="800" height="34" rx="14" fill="#050A13" fill-opacity=".34" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <rect x="44" y="34" width="104" height="22" rx="11" class="badge"/><circle cx="58" cy="45" r="3.5" fill="#38BDF8"/><text x="70" y="49" class="tiny">Teams</text>
+  <rect x="156" y="34" width="94" height="22" rx="11" class="badge"/><circle cx="170" cy="45" r="3.5" fill="#22C55E"/><text x="182" y="49" class="tiny">Connected</text>
+  <rect x="258" y="34" width="92" height="22" rx="11" class="badge"/><circle cx="272" cy="45" r="3.5" fill="#22C55E"/><text x="284" y="49" class="tiny">Capturing</text>
+  <rect x="358" y="34" width="88" height="22" rx="11" class="badge"/><circle cx="372" cy="45" r="3.5" fill="#A78BFA"/><text x="384" y="49" class="tiny">Processing</text>
+  <rect x="680" y="34" width="34" height="22" rx="8" class="button"/><text x="691" y="49" class="tiny">Pin</text>
+  <rect x="720" y="34" width="36" height="22" rx="8" class="button"/><text x="731" y="49" class="tiny">Top</text>
+  <rect x="762" y="34" width="24" height="22" rx="8" class="button"/><path d="M768 45 H780" stroke="#CBD5E1" stroke-width="1.4" stroke-linecap="round"/>
+  <rect x="792" y="34" width="24" height="22" rx="8" class="button"/><path d="M798 39 L810 51 M810 39 L798 51" stroke="#CBD5E1" stroke-width="1.3" stroke-linecap="round"/>
+
+  <rect x="30" y="72" width="800" height="280" rx="16" class="panel"/>
+  <rect x="42" y="84" width="776" height="32" rx="12" fill="#FFFFFF" fill-opacity=".045" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <rect x="48" y="90" width="86" height="20" rx="9" fill="#67E8F9" fill-opacity=".16" stroke="#67E8F9" stroke-opacity=".20"/>
+  <text x="73" y="104" class="tiny">Answer</text>
+  <text x="168" y="104" class="caption">Code</text>
+  <text x="240" y="104" class="caption">Screenshot</text>
+  <text x="590" y="104" class="muted">Explain cache tradeoffs</text>
+
+  <rect x="42" y="126" width="524" height="178" rx="13" fill="#FFFFFF" fill-opacity=".05" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <text x="58" y="152" class="section">AI Answer</text>
+  <rect x="492" y="138" width="34" height="22" rx="8" class="button"/><text x="500" y="153" class="tiny">Copy</text>
+  <rect x="530" y="138" width="28" height="22" rx="8" class="button"/><text x="536" y="153" class="tiny">Redo</text>
+  <text x="58" y="182" class="body">Start with consistency requirements, then compare cache-aside and write-through.</text>
+  <text x="58" y="203" class="body">Tie each option to latency, stale reads, operational cost, and freshness guarantees.</text>
+  <text x="58" y="224" class="body">Use one concrete failure mode before naming the alternative strategy.</text>
+  <rect x="58" y="256" width="74" height="20" rx="10" fill="#052E2B" fill-opacity=".72"/><text x="72" y="270" class="tiny">clarity</text>
+  <rect x="138" y="256" width="78" height="20" rx="10" fill="#172554" fill-opacity=".72"/><text x="152" y="270" class="tiny">latency</text>
+  <rect x="222" y="256" width="92" height="20" rx="10" fill="#2B1744" fill-opacity=".72"/><text x="236" y="270" class="tiny">tradeoffs</text>
+  <rect x="330" y="262" width="184" height="8" rx="4" class="skel"/>
+
+  <rect x="578" y="126" width="228" height="82" rx="13" fill="#FFFFFF" fill-opacity=".05" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <text x="592" y="151" class="section">Bullet summary</text>
+  <circle cx="598" cy="173" r="2.5" fill="#38BDF8"/><text x="608" y="177" class="caption">Ask for read/write ratio before choosing</text>
+  <circle cx="598" cy="194" r="2.5" fill="#8B5CF6"/><text x="608" y="198" class="caption">Mention TTL plus invalidation</text>
+
+  <rect x="578" y="216" width="228" height="88" rx="13" fill="#020617" fill-opacity=".72" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <text x="592" y="241" class="section">Code preview</text>
+  <text x="592" y="265" class="code">const</text><text x="630" y="265" class="code2"> cache</text><text x="670" y="265" class="code"> = strategy;</text>
+  <text x="592" y="286" class="code2">validateFreshness</text><text x="690" y="286" class="code">(ttl)</text>
+
+  <rect x="42" y="314" width="776" height="26" rx="13" fill="#050A13" fill-opacity=".36" stroke="#FFFFFF" stroke-opacity=".08"/>
+  <text x="66" y="331" class="tiny">Copy</text><text x="134" y="331" class="tiny">Refresh</text><circle cx="238" cy="327" r="4" fill="#22C55E"/><text x="250" y="331" class="tiny">Invisible Mode</text><text x="734" y="331" class="tiny">Settings</text>
+</svg>
