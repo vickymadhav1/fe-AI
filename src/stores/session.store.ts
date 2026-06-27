@@ -24,6 +24,15 @@ export interface InterviewState {
   detectedLanguage: string
   ocrCharacterCount: number
   screenshotPreviewUrl: string
+  activeMeetingApp: string
+  activeWindowTitle: string
+  sourceId: string
+  sourceName: string
+  voiceSource: 'system' | 'microphone' | 'unknown'
+  voiceStatus: 'idle' | 'connected' | 'speaking' | 'question' | 'streaming'
+  liveQuestion: string
+  liveAnswer: string
+  liveQuestionType: string
 }
 
 export const useSessionStore = defineStore('sessions', {
@@ -49,6 +58,15 @@ export const useSessionStore = defineStore('sessions', {
     detectedLanguage: '',
     ocrCharacterCount: 0,
     screenshotPreviewUrl: '',
+    activeMeetingApp: '',
+    activeWindowTitle: '',
+    sourceId: '',
+    sourceName: '',
+    voiceSource: 'unknown',
+    voiceStatus: 'idle',
+    liveQuestion: '',
+    liveAnswer: '',
+    liveQuestionType: '',
   }),
   actions: {
     async fetchSessions() {
@@ -105,6 +123,14 @@ export const useSessionStore = defineStore('sessions', {
     startInterview() {
       this.isRunning = true
     },
+    setInterviewSource(sourceId: string, sourceName: string) {
+      this.sourceId = sourceId
+      this.sourceName = sourceName
+    },
+    updateActiveMeeting(activeMeetingApp: string, activeWindowTitle: string) {
+      this.activeMeetingApp = activeMeetingApp
+      this.activeWindowTitle = activeWindowTitle
+    },
     setListening(active: boolean) {
       this.isListening = active
     },
@@ -113,6 +139,36 @@ export const useSessionStore = defineStore('sessions', {
     },
     updateTranscript(item: Transcript) {
       this.transcript = item.text
+    },
+    updateVoicePartial(text: string, source: InterviewState['voiceSource']) {
+      this.voiceSource = source
+      this.voiceStatus = text.trim() ? 'speaking' : 'connected'
+      this.liveQuestion = text
+      this.currentQuestion = text
+    },
+    updateVoiceQuestion(question: string, type: string, source: InterviewState['voiceSource']) {
+      this.voiceSource = source
+      this.voiceStatus = 'question'
+      this.liveQuestion = question
+      this.liveQuestionType = type
+      this.currentQuestion = question
+    },
+    updateVoiceAnswer(question: string, answer: string, confidence: number, provider = '') {
+      this.voiceStatus = 'streaming'
+      this.liveQuestion = question
+      this.currentQuestion = question
+      this.liveAnswer = answer
+      this.answer = answer
+      this.confidence = Number.isFinite(confidence)
+        ? Math.max(answer.trim() ? 0.7 : 0, Math.min(1, confidence))
+        : this.confidence
+      this.provider = provider || this.provider
+    },
+    clearLiveVoice() {
+      this.voiceStatus = this.isListening ? 'connected' : 'idle'
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
     },
     updateSuggestion(suggestion: Suggestion) {
       const parsedConfidence = Number(suggestion.confidence)
@@ -150,11 +206,49 @@ export const useSessionStore = defineStore('sessions', {
       this.provider = result.provider ?? ''
       this.screenStatus = result.screenStatus ?? this.screenStatus
       this.lastCapture = result.lastCapture ?? this.lastCapture
+       this.screenshotPreviewUrl = result.screenshotPreviewUrl ?? this.screenshotPreviewUrl
     },
     stopInterview() {
       this.isRunning = false
       this.isListening = false
       this.isScreenSharing = false
+    },
+    clearCurrentOutput() {
+      if (this.activeSession) {
+        this.activeSession = {
+          ...this.activeSession,
+          transcripts: [],
+          suggestions: [],
+          screenContexts: [],
+        }
+        const sessionIndex = this.sessions.findIndex(
+          (session) => session.id === this.activeSession?.id,
+        )
+        if (sessionIndex >= 0) {
+          this.sessions[sessionIndex] = {
+            ...this.sessions[sessionIndex]!,
+            transcripts: [],
+            suggestions: [],
+            screenContexts: [],
+            _count: { transcripts: 0, suggestions: 0 },
+          }
+        }
+      }
+      this.transcript = ''
+      this.currentQuestion = ''
+      this.answer = ''
+      this.code = ''
+      this.confidence = 0
+      this.provider = ''
+      this.lastCapture = ''
+      this.ocrStatus = 'idle'
+      this.codeDetectionStatus = 'No code detected'
+      this.detectedLanguage = ''
+      this.ocrCharacterCount = 0
+      this.screenshotPreviewUrl = ''
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
     },
     clearInterviewState() {
       this.stopInterview()
@@ -171,6 +265,15 @@ export const useSessionStore = defineStore('sessions', {
       this.detectedLanguage = ''
       this.ocrCharacterCount = 0
       this.screenshotPreviewUrl = ''
+      this.activeMeetingApp = ''
+      this.activeWindowTitle = ''
+      this.sourceId = ''
+      this.sourceName = ''
+      this.voiceSource = 'unknown'
+      this.voiceStatus = 'idle'
+      this.liveQuestion = ''
+      this.liveAnswer = ''
+      this.liveQuestionType = ''
     },
   },
 })

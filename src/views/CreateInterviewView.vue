@@ -140,7 +140,7 @@ const submit = async () => {
 
     <div class="flex justify-end">
       <button class="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60 dark:bg-white dark:text-slate-950" :disabled="interviewStore.creating">
-        <ArrowPathIcon v-if="interviewStore.creating" class="h-5 w-5 animate-spin" />
+        <ArrowPathIcon v-if="interviewStore.creating" class="h-5 w-5" />
         {{ interviewStore.creating ? 'Creating...' : 'Create Interview Session' }}
       </button>
     </div>

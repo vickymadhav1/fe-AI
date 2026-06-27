@@ -1,0 +1,58 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1024"><stop stop-color="#080A12"/><stop offset="0.5" stop-color="#111827"/><stop offset="1" stop-color="#07080D"/></linearGradient>
+    <linearGradient id="aura" x1="180" y1="0" x2="1120" y2="760"><stop stop-color="#7C3AED" stop-opacity=".34"/><stop offset=".45" stop-color="#06B6D4" stop-opacity=".16"/><stop offset="1" stop-color="#22C55E" stop-opacity=".12"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#182033" stop-opacity=".92"/><stop offset="1" stop-color="#0D111C" stop-opacity=".86"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="70"/></filter>
+    <style>
+      .title{font:700 42px Inter,Arial,sans-serif;fill:#F8FAFC;letter-spacing:0}
+      .h2{font:700 19px Inter,Arial,sans-serif;fill:#F8FAFC}
+      .body{font:500 14px Inter,Arial,sans-serif;fill:#94A3B8}
+      .small{font:600 12px Inter,Arial,sans-serif;fill:#64748B}
+      .metric{font:800 34px Inter,Arial,sans-serif;fill:#F8FAFC}
+      .label{font:700 13px Inter,Arial,sans-serif;fill:#CBD5E1}
+      .card{fill:url(#card);stroke:#263249;stroke-width:1}
+      .line{stroke:#253149;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/>
+  <circle cx="900" cy="140" r="280" fill="url(#aura)" filter="url(#blur)"/>
+  <rect x="24" y="24" width="268" height="976" rx="18" fill="#0B0F19" stroke="#1F2937"/>
+  <text x="56" y="78" class="h2">Interview Mate AI</text>
+  <rect x="48" y="122" width="220" height="44" rx="8" fill="#111827" stroke="#334155"/>
+  <circle cx="70" cy="144" r="8" fill="#22C55E"/><text x="92" y="149" class="label">Dashboard</text>
+  <text x="56" y="214" class="small">WORKSPACE</text>
+  <text x="56" y="254" class="body">Live Interview</text><text x="56" y="294" class="body">History</text><text x="56" y="334" class="body">Invisible</text><text x="56" y="374" class="body">Settings</text>
+  <rect x="48" y="832" width="220" height="116" rx="12" fill="#101827" stroke="#273449"/>
+  <text x="68" y="864" class="label">Invisible Credits</text><text x="68" y="904" class="metric" style="font-size:28px">1,125</text><text x="68" y="930" class="small">225 minutes remaining</text>
+  <rect x="328" y="56" width="1032" height="88" rx="16" fill="#0C111D" stroke="#202A3D"/>
+  <text x="360" y="106" class="title">Workspace overview</text>
+  <rect x="1126" y="78" width="186" height="44" rx="8" fill="#F8FAFC"/><text x="1165" y="106" style="font:700 14px Inter,Arial;fill:#0F172A">Start Interview</text>
+  <rect x="328" y="176" width="236" height="156" rx="14" class="card"/><text x="356" y="220" class="label">Sessions this week</text><text x="356" y="270" class="metric">18</text><path d="M356 300 C410 268 448 322 536 284" stroke="#22C55E" stroke-width="3" fill="none"/>
+  <rect x="588" y="176" width="236" height="156" rx="14" class="card"/><text x="616" y="220" class="label">AI suggestions</text><text x="616" y="270" class="metric">642</text><path d="M616 302 L660 274 L704 286 L748 246 L792 258" stroke="#38BDF8" stroke-width="3" fill="none"/>
+  <rect x="848" y="176" width="236" height="156" rx="14" class="card"/><text x="876" y="220" class="label">Avg confidence</text><text x="876" y="270" class="metric">92%</text><circle cx="1030" cy="250" r="38" stroke="#475569" stroke-width="10"/><path d="M1030 212 A38 38 0 1 1 997 269" stroke="#A78BFA" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <rect x="1108" y="176" width="252" height="156" rx="14" class="card"/><text x="1136" y="220" class="label">Capture health</text><text x="1136" y="270" class="metric">Live</text><rect x="1136" y="294" width="112" height="20" rx="10" fill="#064E3B"/><text x="1152" y="309" style="font:700 11px Inter,Arial;fill:#86EFAC">Teams detected</text>
+  <rect x="328" y="364" width="640" height="296" rx="16" class="card"/>
+  <text x="360" y="410" class="h2">AI activity</text>
+  <g stroke-width="1.5" fill="none">
+    <path d="M372 596 L452 548 L532 570 L612 500 L692 526 L772 454 L932 480" stroke="#22D3EE"/>
+    <path d="M372 624 L452 600 L532 612 L612 552 L692 580 L772 520 L932 540" stroke="#A78BFA"/>
+  </g>
+  <g class="small">
+    <text x="372" y="636">Mon</text><text x="452" y="636">Tue</text><text x="532" y="636">Wed</text><text x="612" y="636">Thu</text><text x="692" y="636">Fri</text><text x="772" y="636">Sat</text><text x="912" y="636">Sun</text>
+  </g>
+  <line x1="360" y1="460" x2="936" y2="460" class="line"/><line x1="360" y1="520" x2="936" y2="520" class="line"/><line x1="360" y1="580" x2="936" y2="580" class="line"/>
+  <rect x="992" y="364" width="368" height="296" rx="16" class="card"/>
+  <text x="1024" y="410" class="h2">Quick actions</text>
+  <rect x="1024" y="444" width="304" height="54" rx="10" fill="#111827" stroke="#334155"/><text x="1052" y="478" class="label">New mock interview</text>
+  <rect x="1024" y="516" width="304" height="54" rx="10" fill="#111827" stroke="#334155"/><text x="1052" y="550" class="label">Review latest session</text>
+  <rect x="1024" y="588" width="304" height="54" rx="10" fill="#111827" stroke="#334155"/><text x="1052" y="622" class="label">Upgrade Invisible credits</text>
+  <rect x="328" y="692" width="1032" height="260" rx="16" class="card"/>
+  <text x="360" y="738" class="h2">Recent interviews</text>
+  <g class="body">
+    <text x="360" y="796">Senior frontend interview</text><text x="828" y="796">88 min</text><text x="1016" y="796">94% confidence</text><text x="1220" y="796">Today</text>
+    <text x="360" y="852">System design screening</text><text x="828" y="852">45 min</text><text x="1016" y="852">89% confidence</text><text x="1220" y="852">Yesterday</text>
+    <text x="360" y="908">Product engineering loop</text><text x="828" y="908">62 min</text><text x="1016" y="908">91% confidence</text><text x="1220" y="908">Jun 23</text>
+  </g>
+  <line x1="360" y1="820" x2="1328" y2="820" class="line"/><line x1="360" y1="876" x2="1328" y2="876" class="line"/>
+</svg>

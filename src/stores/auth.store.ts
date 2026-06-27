@@ -32,14 +32,16 @@ export const useAuthStore = defineStore('auth', {
 
       try {
         const session = await api.loginWithGoogle(idToken)
-        this.user = session.user
+        const lastLoginAt = new Date().toISOString()
+        this.user = { ...session.user, lastLoginAt }
         this.token = session.token
+        const availableCredits = session.user.credits ?? 0
         this.credits = {
-          remaining: session.user.credits ?? 20,
+          remaining: availableCredits,
           used: 0,
-          monthlyLimit: 20,
+          monthlyLimit: availableCredits,
         }
-        localStorage.setItem('interview-mate-user', JSON.stringify(session.user))
+        localStorage.setItem('interview-mate-user', JSON.stringify(this.user))
         localStorage.setItem('interview-mate-token', session.token)
       } catch {
         this.error = 'Unable to sign in with Google. Try again.'

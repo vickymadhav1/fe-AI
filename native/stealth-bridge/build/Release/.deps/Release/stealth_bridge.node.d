@@ -1,0 +1,1 @@
+cmd_Release/stealth_bridge.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=13.5 -arch arm64 -L./Release -stdlib=libc++  -o Release/stealth_bridge.node Release/obj.target/stealth_bridge/src/stealth_bridge.o Release/obj.target/stealth_bridge/src/platform_mac.o -framework AppKit

@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
   readonly VITE_SOCKET_URL?: string
   readonly VITE_GOOGLE_CLIENT_ID?: string
+  readonly VITE_RAZORPAY_KEY_ID?: string
   readonly VITE_OPENAI_API_KEY?: string
   readonly VITE_GROQ_API_KEY?: string
   readonly VITE_OPENROUTER_API_KEY?: string
@@ -56,11 +57,27 @@ interface Window {
         sourceName?: string
       }>
     }
+    meeting: {
+      getActiveWindow(): Promise<ActiveMeetingWindow>
+    }
+    invisible: {
+      setContentProtection(enabled: boolean): Promise<InvisibleProtectionResult>
+      getContentProtection(): Promise<InvisibleProtectionResult>
+    }
+    stealth: {
+      restoreWindows(): Promise<StealthProtectionResult>
+      setCaptureProtection(enabled: boolean): Promise<StealthProtectionResult>
+      registerShortcut(accelerator: string): Promise<{ registered: boolean; accelerator: string }>
+      getState(): Promise<StealthProtectionResult & { shortcut: string }>
+    }
     floating: {
       getLatest(): Promise<FloatingResult | null>
       publish(result: FloatingResult): void
       start(): void
       end(): void
+      getWindowState(): Promise<CompanionWindowState | null>
+      setAlwaysOnTop(enabled: boolean): Promise<CompanionWindowState | null>
+      setTransparency(value: number): Promise<CompanionWindowState | null>
       copyCode(): void
       onResult(callback: (result: FloatingResult) => void): () => void
     }
@@ -70,6 +87,97 @@ interface Window {
       id: GoogleAccountsId
     }
   }
+  Razorpay?: new (options: RazorpayOptions) => {
+    open(): void
+    on(event: 'payment.failed', callback: (response: RazorpayFailureResponse) => void): void
+  }
+}
+
+interface RazorpayOptions {
+  key: string
+  amount: number
+  currency: string
+  name: string
+  description: string
+  order_id: string
+  handler(response: RazorpaySuccessResponse): void
+  prefill?: {
+    name?: string
+    email?: string
+  }
+  modal?: {
+    ondismiss?: () => void
+  }
+  method?: {
+    upi?: boolean
+    card?: boolean
+    netbanking?: boolean
+    wallet?: boolean
+    emi?: boolean
+    paylater?: boolean
+  }
+  config?: {
+    display?: {
+      blocks?: Record<string, {
+        name: string
+        instruments: Array<{ method: string }>
+      }>
+      sequence?: string[]
+      preferences?: {
+        show_default_blocks?: boolean
+      }
+    }
+  }
+  theme?: {
+    color?: string
+  }
+}
+
+interface RazorpaySuccessResponse {
+  razorpay_order_id: string
+  razorpay_payment_id: string
+  razorpay_signature: string
+}
+
+interface RazorpayFailureResponse {
+  error?: {
+    description?: string
+    reason?: string
+  }
+}
+
+interface ActiveMeetingWindow {
+  activeMeetingApp: string
+  activeWindowTitle: string
+}
+
+interface InvisibleProtectionResult {
+  enabled: boolean
+  supported: boolean
+  platform: string
+  platformName?: string
+  warning?: string
+}
+
+interface StealthProtectionResult {
+  hidden?: boolean
+  protected?: boolean
+  enabled: boolean
+  supported: boolean
+  platform: string
+  platformName?: string
+  nativeBridgeLoaded?: boolean
+  nativeProtection?: boolean
+  captureExclusion?: boolean
+  dockHiding?: boolean
+  taskbarHiding?: boolean
+  mainWindowProtected?: boolean
+  companionWindowProtected?: boolean
+  dockHidden?: boolean
+  taskbarHidden?: boolean
+  activeMeetingApp?: string
+  activeWindowTitle?: string
+  warning?: string
 }
 
 interface CaptureSource {
@@ -91,6 +199,16 @@ interface FloatingResult {
   screenStatus?: string
   lastCapture?: string
   timestamp: string
+  screenshotPreviewUrl?: string
+}
+
+interface CompanionWindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  alwaysOnTop: boolean
+  transparency: number
 }
 
 interface ImportMeta {

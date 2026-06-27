@@ -8,6 +8,7 @@ const uiStore = useUiStore()
 
 onMounted(() => {
   uiStore.initializeTheme()
+  uiStore.initializeStealthSettings()
 })
 </script>
 

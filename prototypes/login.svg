@@ -1,0 +1,14 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1024"><stop stop-color="#05070B"/><stop offset=".42" stop-color="#101827"/><stop offset="1" stop-color="#080A12"/></linearGradient><radialGradient id="orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1020 270) rotate(120) scale(390)"><stop stop-color="#38BDF8" stop-opacity=".32"/><stop offset=".52" stop-color="#7C3AED" stop-opacity=".18"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient><style>.title{font:800 48px Inter,Arial;fill:#F8FAFC}.h2{font:700 19px Inter,Arial;fill:#F8FAFC}.body{font:500 15px Inter,Arial;fill:#CBD5E1}.muted{font:500 13px Inter,Arial;fill:#64748B}.tiny{font:700 11px Inter,Arial;fill:#94A3B8}.card{fill:#0E1422;stroke:#263347}</style></defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/><rect width="1440" height="1024" fill="url(#orb)"/>
+  <text x="116" y="136" class="h2">Interview Mate AI</text>
+  <text x="116" y="360" class="title">Enter interviews with an AI copilot that stays focused.</text>
+  <text x="116" y="430" class="body">Real-time transcript analysis, contextual suggestions, Invisible credits, and a companion window designed for live conversations.</text>
+  <rect x="852" y="178" width="420" height="612" rx="24" class="card"/>
+  <text x="900" y="246" class="h2">Welcome back</text><text x="900" y="280" class="muted">Sign in to continue to your workspace</text>
+  <text x="900" y="354" class="tiny">EMAIL</text><rect x="900" y="374" width="324" height="52" rx="12" fill="#111827" stroke="#334155"/><text x="924" y="407" class="muted">you@company.com</text>
+  <text x="900" y="472" class="tiny">PASSWORD</text><rect x="900" y="492" width="324" height="52" rx="12" fill="#111827" stroke="#334155"/><text x="924" y="525" class="muted">••••••••••••</text>
+  <rect x="900" y="594" width="324" height="52" rx="12" fill="#F8FAFC"/><text x="1022" y="627" style="font:800 14px Inter,Arial;fill:#0F172A">Sign in</text>
+  <rect x="900" y="672" width="324" height="52" rx="12" fill="#0B111D" stroke="#334155"/><text x="992" y="705" class="body">Continue with Google</text>
+  <text x="968" y="758" class="muted">New here? Create an account</text>
+</svg>

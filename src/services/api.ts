@@ -1,8 +1,7 @@
 import axios from 'axios'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { appConfig } from '@/config/app.config'
-import { mockChatHistory, mockCredits, mockInterviews, mockSuggestions } from '@/services/mock-data'
-import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, Interview, InterviewSession, ScreenContext, Suggestion, Transcript, User } from '@/types'
+import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, DashboardStatistics, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
 
 export const apiClient = axios.create({
   baseURL: appConfig.apiBaseUrl,
@@ -11,7 +10,6 @@ export const apiClient = axios.create({
 
 const pendingApiRequests = ref(0)
 const trackedRequests = new WeakSet<object>()
-export const apiLoading = computed(() => pendingApiRequests.value > 0)
 
 apiClient.interceptors.request.use(
   (config) => {
@@ -59,11 +57,6 @@ apiClient.interceptors.response.use(
   },
 )
 
-const delay = <T>(payload: T, ms = 500) =>
-  new Promise<T>((resolve) => {
-    window.setTimeout(() => resolve(payload), ms)
-  })
-
 export const api = {
   getAiProviderHealth: async (refresh = false): Promise<AiProviderHealth[]> => {
     const path = refresh ? '/health/ai' : '/health'
@@ -84,40 +77,60 @@ export const api = {
   },
 
   getInterviews: async (): Promise<Interview[]> => {
-    return delay([...mockInterviews], 400)
+    return []
   },
 
   getCredits: async () => {
-    return delay({ ...mockCredits }, 250)
+    return { remaining: 0, used: 0, monthlyLimit: 0 }
   },
 
   createInterview: async (payload: CreateInterviewPayload): Promise<Interview> => {
-    return delay(
-      {
-        id: `int_${Date.now()}`,
-        ...payload,
-        status: 'scheduled',
-      },
-      800,
-    )
+    const session = (
+      await apiClient.post<{ data: InterviewSession }>('/sessions', {
+        title: payload.company ? `${payload.company} interview` : payload.role,
+        company: payload.company,
+        role: payload.role,
+      })
+    ).data.data
+
+    return {
+      id: session.id,
+      ...payload,
+      status: 'scheduled',
+    }
   },
 
   startInterview: async (id: string): Promise<{ sessionId: string; interviewId: string }> => {
-    return delay({ sessionId: `session_${Date.now()}`, interviewId: id }, 500)
+    return { sessionId: id, interviewId: id }
   },
 
   getSuggestions: async (interviewId: string): Promise<AiSuggestion[]> => {
-    return delay(mockSuggestions.map((item) => ({ ...item, interviewId })), 600)
+    void interviewId
+    return []
   },
 
   getChatHistory: async (interviewId: string): Promise<ChatMessage[]> => {
-    return delay(mockChatHistory.map((item) => ({ ...item, interviewId })), 350)
+    void interviewId
+    return []
   },
 
   createSession: async (payload: { title?: string; company?: string; role?: string }) =>
     (await apiClient.post<{ data: InterviewSession }>('/sessions', payload)).data.data,
   getSessions: async () =>
     (await apiClient.get<{ data: InterviewSession[] }>('/sessions')).data.data,
+  getDashboardStatistics: async () => {
+    const now = new Date()
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    return (
+      await apiClient.get<{ data: DashboardStatistics }>('/sessions/dashboard-statistics', {
+        params: {
+          dayStart: dayStart.toISOString(),
+          dayEnd: dayEnd.toISOString(),
+        },
+      })
+    ).data.data
+  },
   getSession: async (id: string) =>
     (await apiClient.get<{ data: InterviewSession }>(`/sessions/${id}`)).data.data,
   endSession: async (id: string) =>
@@ -156,6 +169,8 @@ export const api = {
   image: Blob,
   sourceId: string,
   sourceName: string,
+  activeMeetingApp: string,
+  activeWindowTitle: string,
   signal?: AbortSignal,
 ) => {
   const form = new FormData()
@@ -163,6 +178,8 @@ export const api = {
   form.append('sessionId', sessionId)
   form.append('sourceId', sourceId)
   form.append('sourceName', sourceName)
+  form.append('activeMeetingApp', activeMeetingApp)
+  form.append('activeWindowTitle', activeWindowTitle)
   form.append('image', image, `screen-${Date.now()}.png`)
 
   return (
@@ -191,5 +208,45 @@ export const api = {
         source,
         content,
       })
+    ).data.data,
+  getInvisibleSubscription: async () =>
+    (await apiClient.get<{ data: InvisibleSubscription }>('/invisible/subscription')).data.data,
+  createInvisibleOrder: async (planId = 'invisible_starter') =>
+    (
+      await apiClient.post<{ data: InvisibleOrderResponse }>('/invisible/orders', {
+        planId,
+      })
+    ).data.data,
+  verifyInvisiblePayment: async (payload: {
+    razorpayOrderId: string
+    razorpayPaymentId: string
+    razorpaySignature: string
+  }) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/payments/verify',
+        payload,
+      )
+    ).data.data,
+  failInvisiblePayment: async (payload: { razorpayOrderId: string; reason: string }) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/payments/fail',
+        payload,
+      )
+    ).data.data,
+  deductInvisibleCredits: async (minutes = 1) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/credits/deduct',
+        { minutes },
+      )
+    ).data.data,
+  setInvisibleProtection: async (enabled: boolean) =>
+    (
+      await apiClient.post<{ data: InvisibleSubscription }>(
+        '/invisible/protection',
+        { enabled },
+      )
     ).data.data,
 }

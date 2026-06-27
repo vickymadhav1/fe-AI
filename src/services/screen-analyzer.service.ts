@@ -18,6 +18,8 @@ export interface CaptureSource {
   thumbnailDataUrl: string
 }
 
+type CaptureGate = () => boolean | Promise<boolean>
+
 class ScreenAnalyzerService {
   private stream: MediaStream | null = null
   private timer = 0
@@ -54,7 +56,12 @@ class ScreenAnalyzerService {
     return transitionDensity > 0.045 && contrastDensity > 0.2
   }
 
-  async startBackground(onFrame: (frame: CaptureFrame) => void): Promise<boolean> {
+  async startBackground(
+    onFrame: (frame: CaptureFrame) => void,
+    shouldCapture: CaptureGate = () => true,
+  ): Promise<boolean> {
+    console.log('[CAPTURE MODE] startBackground');
+    
     if (!window.interviewMateDesktop?.capture.getVisibleScreen) return false
     this.stop()
     this.backgroundCaptureRunning = true
@@ -64,6 +71,7 @@ class ScreenAnalyzerService {
       if (!this.backgroundCaptureRunning || this.captureInFlight) return
       this.captureInFlight = true
       try {
+        if (!(await shouldCapture())) return
         const result = await window.interviewMateDesktop!.capture.getVisibleScreen()
         if (!result.available || !result.bytes || !result.width || !result.height) {
           this.backgroundCaptureRunning = false
@@ -120,13 +128,23 @@ class ScreenAnalyzerService {
     source: CaptureSource,
     onFrame: (frame: CaptureFrame) => void,
     onUnavailable?: () => void,
+    shouldCapture: CaptureGate = () => true,
   ): Promise<MediaStream> {
+    console.log('[CAPTURE MODE] start', {
+    sourceName: source.name,
+    sourceId: source.id,
+  })
     if (/interview mate(?: ai)?/i.test(source.name)) {
       throw new Error('Interview Mate windows cannot be captured')
     }
     console.info('[ScreenCapture] started', { source: source.name, sourceId: source.id })
     const constraints = {
-      audio: false,
+      audio: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: source.id,
+        },
+      },
       video: {
         mandatory: {
           chromeMediaSource: 'desktop',
@@ -135,13 +153,22 @@ class ScreenAnalyzerService {
         },
       },
     } as unknown as MediaStreamConstraints
-    this.stream = await navigator.mediaDevices.getUserMedia(constraints)
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (error) {
+      console.warn('[Voice] System audio unavailable; falling back to video-only capture', error)
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: constraints.video,
+      } as unknown as MediaStreamConstraints)
+    }
     this.video = document.createElement('video')
     this.video.srcObject = this.stream
     this.video.muted = true
     await this.video.play()
 
-    const capture = () => {
+    const capture = async () => {
+      if (!(await shouldCapture())) return
       if (!this.video || this.video.videoWidth === 0) return
       const canvas = document.createElement('canvas')
       const scale = Math.min(1, 2560 / this.video.videoWidth)
@@ -196,7 +223,7 @@ class ScreenAnalyzerService {
     }
 
     capture()
-    this.timer = window.setInterval(capture, 2_000)
+    this.timer = window.setInterval(() => void capture(), 2_000)
     this.stream.getVideoTracks()[0]?.addEventListener('ended', () => {
       this.stop()
       onUnavailable?.()

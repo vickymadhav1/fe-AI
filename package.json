@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:desktop": "concurrently -k \"vite --host localhost\" \"wait-on http://localhost:5173 && electron . --dev\"",
     "build": "run-p type-check \"build-only {@}\" --",
+    "build:native-stealth": "node-gyp rebuild --directory native/stealth-bridge",
     "build:desktop": "npm run build && node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",
     "desktop": "electron .",
     "preview": "vite preview",

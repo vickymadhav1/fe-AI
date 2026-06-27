@@ -1,0 +1,14 @@
+<svg width="360" height="1024" viewBox="0 0 360 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="360" y2="1024"><stop stop-color="#0B111D"/><stop offset="1" stop-color="#07080D"/></linearGradient><style>.h2{font:800 19px Inter,Arial;fill:#F8FAFC}.body{font:600 14px Inter,Arial;fill:#CBD5E1}.muted{font:600 12px Inter,Arial;fill:#64748B}.tiny{font:800 10px Inter,Arial;fill:#94A3B8}</style></defs>
+  <rect width="360" height="1024" fill="url(#bg)"/>
+  <text x="36" y="64" class="h2">Interview Mate AI</text>
+  <rect x="28" y="112" width="304" height="46" rx="10" fill="#111827" stroke="#334155"/><circle cx="58" cy="135" r="8" fill="#38BDF8"/><text x="84" y="140" class="body">Dashboard</text>
+  <text x="36" y="214" class="muted">INTERVIEW</text>
+  <text x="36" y="260" class="body">Live Interview</text><text x="36" y="306" class="body">History</text><text x="36" y="352" class="body">AI Cards</text>
+  <text x="36" y="430" class="muted">MONETIZATION</text>
+  <text x="36" y="476" class="body">Invisible</text><text x="36" y="522" class="body">Pricing</text><text x="36" y="568" class="body">Payment</text>
+  <text x="36" y="646" class="muted">SYSTEM</text>
+  <text x="36" y="692" class="body">Settings</text><text x="36" y="738" class="body">Support</text>
+  <rect x="28" y="846" width="304" height="126" rx="16" fill="#101827" stroke="#263347"/>
+  <text x="56" y="884" class="tiny">INVISIBLE WALLET</text><text x="56" y="926" style="font:800 30px Inter,Arial;fill:#F8FAFC">900</text><text x="56" y="954" class="muted">credits remaining</text>
+</svg>

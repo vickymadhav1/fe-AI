@@ -13,6 +13,7 @@ export interface User {
   credits?: number
   createdAt?: string
   updatedAt?: string
+  lastLoginAt?: string
   role?: string
   avatarUrl?: string
 }
@@ -84,12 +85,40 @@ export interface InterviewSession {
   status: 'active' | 'completed'
   startedAt: string
   endedAt: string | null
+  interviewRunning?: boolean
+  activeRunStartedAt?: string | null
+  interviewDurationSeconds?: number
   createdAt: string
   updatedAt: string
   transcripts?: Transcript[]
   suggestions?: Suggestion[]
   screenContexts?: ScreenContext[]
   _count?: { transcripts: number; suggestions: number }
+}
+
+export interface DashboardStatistics {
+  wallet: {
+    creditsRemaining: number
+    minutesRemaining: number
+    creditsUsed: number
+    totalInterviewMinutes: number
+    todayUsageMinutes: number
+    currentSessionMinutes: number
+  }
+  interviews: {
+    total: number
+    today: number
+    completed: number
+    codingChallenges: number
+    behavioralQuestions: number
+    systemDesignQuestions: number
+    suggestionsGenerated: number
+    averageConfidence: number | null
+  }
+  currentSession: {
+    running: boolean
+    sessionId: string | null
+  }
 }
 
 export interface Transcript {
@@ -118,6 +147,40 @@ export interface Suggestion {
   confidence: number
   promptDebug: string
   createdAt: string
+  live?: boolean
+  sequence?: number
+}
+
+export interface VoicePartial {
+  sessionId: string
+  text: string
+  isFinal: boolean
+  source: 'system' | 'microphone' | 'unknown'
+  confidence: number
+}
+
+export interface VoiceQuestionDraft {
+  sessionId: string
+  sequence: number
+  question: string
+  source: 'voice'
+  audioSource: 'system' | 'microphone' | 'unknown'
+  classification: {
+    type: Suggestion['type']
+    confidence: number
+  }
+  confidence: number
+  partial: boolean
+}
+
+export interface VoiceAnswerChunk {
+  sessionId: string
+  sequence: number
+  question: string
+  answer: string
+  provider?: string
+  confidence: number
+  done: boolean
 }
 
 export interface ScreenContext {
@@ -153,4 +216,51 @@ export interface AiProviderHealth {
   successCount: number
   failureCount: number
   disabledForMs: number
+}
+
+export type InvisibleSubscriptionStatus =
+  | 'inactive'
+  | 'pending'
+  | 'successful'
+  | 'active'
+  | 'exhausted'
+  | 'failed'
+
+export interface InvisiblePlan {
+  id: string
+  name: string
+  amount: number
+  currency: 'INR'
+  totalCredits: number
+  creditsPerMinute: number
+}
+
+export interface InvisibleSubscription {
+  active: boolean
+  status: InvisibleSubscriptionStatus
+  plan: InvisiblePlan
+  plans: InvisiblePlan[]
+  totalCredits: number
+  remainingCredits: number
+  creditsUsed: number
+  totalMinutes: number
+  remainingMinutes: number
+  creditsPerMinute: number
+  purchaseDate: string | null
+  lastUsedAt: string | null
+  paymentId: string | null
+  orderId: string | null
+}
+
+export interface InvisibleOrderResponse {
+  keyId: string
+  order: {
+    id: string
+    amount: number
+    currency: string
+    receipt: string
+    status: string
+  }
+  plan: InvisiblePlan
+  subscription: InvisibleSubscription
 }

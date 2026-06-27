@@ -1,0 +1,29 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1440" y2="1024"><stop stop-color="#070812"/><stop offset=".5" stop-color="#111827"/><stop offset="1" stop-color="#070812"/></linearGradient><style>.title{font:800 42px Inter,Arial;fill:#F8FAFC}.h2{font:700 20px Inter,Arial;fill:#F8FAFC}.body{font:500 14px Inter,Arial;fill:#CBD5E1}.muted{font:500 13px Inter,Arial;fill:#64748B}.tiny{font:700 11px Inter,Arial;fill:#94A3B8}.metric{font:800 34px Inter,Arial;fill:#F8FAFC}.card{fill:#0E1422;stroke:#263347}</style></defs>
+  <rect width="1440" height="1024" fill="url(#bg)"/>
+  <text x="72" y="94" class="title">Purchase Invisible Credits</text><text x="72" y="128" class="body">UPI-only Razorpay checkout concept</text>
+  <rect x="72" y="176" width="380" height="650" rx="20" class="card"/>
+  <text x="108" y="228" class="h2">Select plan</text>
+  <rect x="108" y="268" width="308" height="106" rx="14" fill="#111827" stroke="#334155"/><text x="132" y="306" class="h2">Starter</text><text x="132" y="342" class="body">INR 300, 300 credits</text><circle cx="382" cy="320" r="12" stroke="#64748B"/>
+  <rect x="108" y="398" width="308" height="126" rx="14" fill="#101A2C" stroke="#38BDF8"/><text x="132" y="436" class="h2">Standard</text><text x="132" y="472" class="body">INR 600, 600 credits</text><text x="132" y="500" class="muted">Popular for interview loops</text><circle cx="382" cy="460" r="12" fill="#38BDF8"/>
+  <rect x="108" y="548" width="308" height="106" rx="14" fill="#111827" stroke="#334155"/><text x="132" y="586" class="h2">Professional</text><text x="132" y="622" class="body">INR 1200, 1200 credits</text><circle cx="382" cy="600" r="12" stroke="#64748B"/>
+  <rect x="108" y="704" width="308" height="54" rx="10" fill="#F8FAFC"/><text x="198" y="738" style="font:800 14px Inter,Arial;fill:#0F172A">Purchase</text>
+  <rect x="500" y="176" width="504" height="650" rx="20" class="card"/>
+  <text x="536" y="228" class="h2">Checkout modal</text>
+  <rect x="592" y="270" width="326" height="456" rx="18" fill="#F8FAFC"/>
+  <text x="626" y="324" style="font:800 22px Inter,Arial;fill:#0F172A">Razorpay</text><text x="626" y="356" style="font:600 13px Inter,Arial;fill:#475569">Interview Mate AI</text>
+  <line x1="626" y1="388" x2="884" y2="388" stroke="#E2E8F0"/>
+  <text x="626" y="430" style="font:800 28px Inter,Arial;fill:#0F172A">INR 600</text><text x="626" y="460" style="font:600 13px Inter,Arial;fill:#64748B">Standard plan, 600 credits</text>
+  <rect x="626" y="502" width="258" height="52" rx="10" fill="#ECFEFF" stroke="#67E8F9"/><text x="650" y="534" style="font:800 13px Inter,Arial;fill:#155E75">UPI Apps</text>
+  <rect x="626" y="570" width="258" height="52" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/><text x="650" y="602" style="font:800 13px Inter,Arial;fill:#334155">UPI ID</text>
+  <rect x="626" y="638" width="258" height="52" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/><text x="650" y="670" style="font:800 13px Inter,Arial;fill:#334155">QR Code</text>
+  <rect x="1052" y="176" width="316" height="650" rx="20" class="card"/>
+  <text x="1088" y="228" class="h2">Purchase flow</text>
+  <g class="body">
+    <text x="1128" y="294">Create order</text><text x="1128" y="372">Open UPI checkout</text><text x="1128" y="450">Payment success</text><text x="1128" y="528">Verify signature</text><text x="1128" y="606">Credits added</text><text x="1128" y="684">Wallet refreshed</text>
+  </g>
+  <g fill="#38BDF8"><circle cx="1096" cy="288" r="9"/><circle cx="1096" cy="366" r="9"/><circle cx="1096" cy="444" r="9"/><circle cx="1096" cy="522" r="9"/><circle cx="1096" cy="600" r="9"/><circle cx="1096" cy="678" r="9"/></g>
+  <path d="M1096 298 V356 M1096 376 V434 M1096 454 V512 M1096 532 V590 M1096 610 V668" stroke="#334155" stroke-width="2"/>
+  <rect x="72" y="858" width="1296" height="96" rx="18" fill="#0B111D" stroke="#263347"/>
+  <text x="108" y="904" class="h2">Benefits</text><text x="108" y="934" class="body">Credits never expire by time. Deduction happens only while Invisible Mode is enabled during a running interview.</text>
+</svg>
