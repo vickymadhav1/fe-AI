@@ -88,6 +88,7 @@ export interface InterviewSession {
   interviewRunning?: boolean
   activeRunStartedAt?: string | null
   interviewDurationSeconds?: number
+  runtimeDurationTracked?: boolean
   createdAt: string
   updatedAt: string
   transcripts?: Transcript[]
@@ -118,6 +119,11 @@ export interface DashboardStatistics {
   currentSession: {
     running: boolean
     sessionId: string | null
+  }
+  invisibleUsage: {
+    remainingMinutes: number
+    lastUsedAt: string | null
+    progress: number
   }
 }
 

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import {
-  ArrowRightStartOnRectangleIcon,
-  BellIcon,
   ChartBarIcon,
   ClockIcon,
   CreditCardIcon,
@@ -10,8 +8,11 @@ import {
   MicrophoneIcon,
   SparklesIcon,
 } from '@heroicons/vue/24/outline'
+import { StarIcon } from '@heroicons/vue/24/solid'
 import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import ProfileChip from '@/components/shell/ProfileChip.vue'
+import SidebarFooter from '@/components/shell/SidebarFooter.vue'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUiStore } from '@/stores/ui.store'
 import { googleAuth } from '@/services/google-auth'
@@ -49,6 +50,14 @@ const groups = [
 ]
 
 const pageTitle = computed(() => String(route.meta.title ?? 'Dashboard'))
+const displayName = computed(() => authStore.user?.name?.trim() || authStore.user?.email || 'Interview Mate AI')
+const initials = computed(() =>
+  displayName.value
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join(''),
+)
 
 const isActiveRoute = (to: string) => {
   if (to === '/sessions/new') return route.path.startsWith('/sessions/')
@@ -63,19 +72,23 @@ const logout = async () => {
   uiStore.pushToast({ type: 'info', title: 'Signed out' })
   await router.push('/')
 }
+
 </script>
 
 <template>
   <div class="h-screen overflow-hidden bg-[linear-gradient(135deg,#080a12,#111827_52%,#07080d)] text-slate-50">
-    <aside class="fixed left-6 top-6 bottom-6 z-30 hidden w-[268px] rounded-[18px] border border-[#1f2937] bg-[#0b0f19] px-6 py-8 shadow-2xl shadow-black/35 lg:flex lg:flex-col">
+    <aside class="fixed left-6 top-6 bottom-6 z-30 hidden w-268px rounded-[18px] border border-[#1f2937] bg-[#0b0f19] px-6 py-8 shadow-2xl shadow-black/35 lg:flex lg:flex-col">
       <RouterLink to="/dashboard" class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
         <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-300 via-violet-400 to-emerald-300 text-slate-950">
           <SparklesIcon class="h-5 w-5" />
         </div>
-        <span class="text-[19px] font-extrabold leading-none text-slate-50">Interview Mate AI</span>
+        <span class="flex items-center gap-2 text-[19px] font-extrabold leading-none text-slate-50">
+          <StarIcon class="h-[18px] w-[18px] text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,.28)]" />
+          Interview Mate AI
+        </span>
       </RouterLink>
 
-      <nav class="mt-10 space-y-8">
+      <nav class="mt-10 flex-1 space-y-8">
         <div v-for="group in groups" :key="group.label || 'primary'">
           <p v-if="group.label" class="mb-4 px-2 text-[12px] font-semibold text-slate-500">
             {{ group.label }}
@@ -97,18 +110,11 @@ const logout = async () => {
         </div>
       </nav>
 
-      <div class="mt-4 flex items-center justify-between gap-2">
-        <button class="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:bg-white/10 hover:text-slate-50" aria-label="Notifications">
-          <BellIcon class="h-4 w-4" />
-        </button>
-        <button
-          class="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:bg-white/10 hover:text-slate-50"
-          aria-label="Logout"
-          @click="logout"
-        >
-          <ArrowRightStartOnRectangleIcon class="h-4 w-4" />
-        </button>
-      </div>
+      <SidebarFooter
+        :name="displayName"
+        :initials="initials"
+        @logout="logout"
+      />
     </aside>
 
     <nav class="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-white/10 bg-[#0b0f19]/95 p-2 backdrop-blur lg:hidden">
@@ -131,9 +137,7 @@ const logout = async () => {
           <h1 class="text-[24px] font-extrabold leading-tight text-slate-50">{{ pageTitle }}</h1>
         </div>
         <div class="hidden items-center gap-3 sm:flex">
-          <span class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] font-bold text-slate-300">
-            {{ authStore.user?.name ?? 'Interview Mate AI' }}
-          </span>
+          <ProfileChip :name="displayName" />
         </div>
       </div>
     </section>

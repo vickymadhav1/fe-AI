@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { useSessionStore } from '@/stores/session.store'
 
@@ -39,8 +39,26 @@ onMounted(async () => {
     alwaysOnTop.value = windowState.alwaysOnTop
   }
   const latest = await companion?.getLatest()
-  if (latest) sessionStore.updateFloatingResult(latest)
+  if (latest) {
+    console.info('[CompanionSync] update received', {
+      source: 'initial',
+      question: latest.question,
+      answerLength: latest.answer?.length ?? 0,
+    })
+    sessionStore.updateFloatingResult(latest)
+  }
   removeResultListener = companion?.onResult((nextResult) => {
+    const result = nextResult as {
+      question?: string
+      answer?: string
+      provider?: string
+    }
+    console.info('[CompanionSync] update received', {
+      source: 'ipc',
+      question: result.question ?? '',
+      answerLength: result.answer?.length ?? 0,
+      provider: result.provider || 'pending',
+    })
     sessionStore.updateFloatingResult(nextResult)
   })
 })
@@ -58,6 +76,16 @@ const toggleAlwaysOnTop = async () => {
   const next = await companion?.setAlwaysOnTop(!alwaysOnTop.value)
   if (next) alwaysOnTop.value = next.alwaysOnTop
 }
+
+watch(
+  () => [currentQuestion.value, answer.value] as const,
+  ([question, nextAnswer]) => {
+    console.info('[CompanionSync] rendered', {
+      question,
+      answerLength: nextAnswer.length,
+    })
+  },
+)
 </script>
 
 <template>

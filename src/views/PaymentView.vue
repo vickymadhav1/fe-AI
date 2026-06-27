@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowPathIcon, EyeSlashIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon, EyeSlashIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { api } from '@/services/api'
 import CreditStats from '@/components/invisible/CreditStats.vue'
 import ProtectionCard from '@/components/invisible/ProtectionCard.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import BenefitsBanner from '@/components/payment/BenefitsBanner.vue'
 import PricingCard from '@/components/payment/PricingCard.vue'
 import { razorpayConfig, requireRazorpayFrontendKey } from '@/config/razorpay.config'
 import { useAuthStore } from '@/stores/auth.store'
@@ -244,18 +245,20 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="im-prototype-page">
-    <section class="flex flex-wrap items-start justify-between gap-5">
+  <div class="im-prototype-page im-payment-page">
+    <section>
       <div>
-        <h1 class="text-[40px] font-extrabold leading-none text-slate-50">Payment</h1>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Subscription, wallet, checkout, and interview preferences</p>
-      </div>
-      <div class="rounded-[14px] border border-[#263347] bg-[#0b111d] px-6 py-4">
-        <p class="text-[11px] font-bold uppercase text-slate-500">Wallet Balance</p>
-        <p class="mt-2 text-[24px] font-extrabold text-slate-50">{{ subscription?.remainingCredits ?? 0 }} credits</p>
+        <h1 class="text-[36px] font-extrabold leading-none text-slate-50">Payment</h1>
+        <p class="mt-3 text-[14px] font-medium text-slate-300">Subscription, wallet, checkout, and interview preferences</p>
       </div>
     </section>
-
+    <BenefitsBanner
+      title="Benefits"
+      description="Credits never expire by time. Deduction happens only while Invisible Mode is enabled during a running interview."
+      :icon="ShieldCheckIcon"
+      metric-label="Wallet Balance"
+      :metric-value="`${subscription?.remainingCredits ?? 0} credits`"
+    />
     <section v-if="subscriptionStore.loading" class="mt-9 grid gap-6 xl:grid-cols-[1fr_420px]">
       <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-6">
         <SkeletonBlock class="h-5 w-32" />
@@ -276,7 +279,7 @@ onMounted(() => {
       </article>
     </section>
 
-    <section v-else class="mt-9 grid gap-6 xl:grid-cols-[1fr_420px]">
+    <section v-else class="mt-0 grid gap-6 xl:grid-cols-[1fr_420px]">
       <!-- <CreditStats
         :remaining-credits="remainingCredits"
         :total-credits="totalCredits || Math.max(remainingCredits, 1)"
@@ -305,7 +308,7 @@ onMounted(() => {
       </article>
     </section>
 
-    <section v-else class="mt-8 grid gap-6 xl:grid-cols-3">
+    <!-- <section v-else class="mt-8 grid gap-6 xl:grid-cols-3">
       <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
         <h2 class="text-[19px] font-bold text-slate-50">Wallet</h2>
         <div class="mt-7 space-y-4 text-[14px] font-medium text-slate-300">
@@ -332,23 +335,23 @@ onMounted(() => {
           <p class="flex justify-between"><span>Active Interview</span><span>{{ sessionStore.isRunning ? 'Running' : 'Stopped' }}</span></p>
         </div>
       </article>
-    </section>
+    </section> -->
 
-    <section class="mt-9 rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
+    <section class="mt-5 rounded-[18px] border border-[#263347] bg-[#0e1422] p-6">
       <div class="flex items-center justify-between gap-4">
         <h2 class="text-[19px] font-bold text-slate-50">Upgrade credits</h2>
         <span class="text-[13px] font-medium text-slate-500">1 rupee = 1 credit · 5 credits per active minute</span>
       </div>
-      <div v-if="subscriptionStore.loading" class="mt-10 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-        <article v-for="item in 4" :key="item" class="rounded-2xl border border-[#334155] bg-[#111827] p-7">
+      <div v-if="subscriptionStore.loading" class="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <article v-for="item in 4" :key="item" class="rounded-2xl border border-[#334155] bg-[#111827] p-5">
           <SkeletonBlock class="h-5 w-28" />
-          <SkeletonBlock class="mt-9 h-8 w-24" />
-          <SkeletonBlock class="mt-6 h-4 w-32" />
-          <SkeletonBlock class="mt-7 h-4 w-28" />
-          <SkeletonBlock class="mt-8 h-[42px] w-full rounded-lg" />
+          <SkeletonBlock class="mt-7 h-8 w-24" />
+          <SkeletonBlock class="mt-5 h-4 w-32" />
+          <SkeletonBlock class="mt-5 h-4 w-28" />
+          <SkeletonBlock class="mt-6 h-[42px] w-full rounded-lg" />
         </article>
       </div>
-      <div v-else class="mt-10 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+      <div v-else class="mt-4 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <PricingCard
           v-for="(plan, index) in plans"
           :key="plan.id"
@@ -534,14 +537,11 @@ onMounted(() => {
         :active-window-title="sessionStore.activeWindowTitle"
       />
     </section> -->
-
+<!-- 
     <section class="mt-8 rounded-[18px] border border-[#263347] bg-[#0b111d] p-8">
-      <h2 class="text-[19px] font-bold text-slate-50">Benefits</h2>
-      <p class="mt-4 text-[14px] font-medium text-slate-300">
-        Credits never expire by time. Deduction happens only while Invisible Mode is enabled during a running interview.
-      </p>
+      
       <p v-if="subscriptionStore.paymentStatus" class="mt-4 text-[13px] font-semibold text-cyan-300">{{ subscriptionStore.paymentStatus }}</p>
       <p v-if="subscriptionStore.error" class="mt-4 text-[13px] font-semibold text-rose-400">{{ subscriptionStore.error }}</p>
-    </section>
+    </section> -->
   </div>
 </template>

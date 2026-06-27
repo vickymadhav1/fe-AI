@@ -392,7 +392,6 @@ const createFloatingWindow = async () => {
 }
 
 const startCompanion = async () => {
-  latestResult = null
   const emptyResult: FloatingResult = {
     question: '',
     answer: '',
@@ -411,11 +410,11 @@ const startCompanion = async () => {
     const window = await createFloatingWindow()
     window.webContents.once('did-finish-load', () => {
       window.show()
-      window.focus()
+    window.focus()
     })
     return
   }
-  floatingWindow.webContents.send('floating:result', emptyResult)
+  floatingWindow.webContents.send('floating:result', latestResult ?? emptyResult)
   floatingWindow.show()
   floatingWindow.focus()
 }
@@ -631,8 +630,14 @@ app.whenReady().then(async () => {
   })
   ipcMain.on('floating:publish', (_event, result: FloatingResult) => {
     latestResult = result
+    console.info('[CompanionSync] IPC publish received', {
+      question: result.question,
+      answerLength: result.answer?.length ?? 0,
+      hasCompanionWindow: Boolean(floatingWindow && !floatingWindow.isDestroyed()),
+    })
     void persistLatestResult()
     floatingWindow?.webContents.send('floating:result', result)
+    console.info('[CompanionSync] IPC update forwarded')
   })
   ipcMain.on('companion:start', () => void startCompanion())
   ipcMain.on('companion:end', stopCompanion)

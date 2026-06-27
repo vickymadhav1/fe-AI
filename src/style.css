@@ -99,9 +99,28 @@ textarea {
   padding: 0px;
 }
 
+.im-payment-page {
+  width: min(100%, 1600px);
+  min-height: 0;
+}
+
 .im-dashboard-page {
-  width: min(100%, 1032px);
-  min-height: 1024px;
+  width: min(100%, 1600px);
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0px;
+}
+
+.im-support-page {
+  width: min(100%, 1600px);
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0px;
+}
+
+.im-live-onboarding-page {
+  width: min(100%, 1600px);
+  min-height: 0;
   margin: 0 auto;
   padding: 0px;
 }

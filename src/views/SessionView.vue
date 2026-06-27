@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import {
   ArrowPathIcon,
+  BanknotesIcon,
+  ClockIcon,
   MicrophoneIcon,
+  RocketLaunchIcon,
+  ShieldCheckIcon,
   StopCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { storeToRefs } from 'pinia'
@@ -15,6 +19,7 @@ import { speechService } from '@/services/speech/speech.service'
 import { isElectronRuntime } from '@/services/runtime'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StealthScreenSharingDialog from '@/components/StealthScreenSharingDialog.vue'
+import InterviewHistorySummary from '@/components/interview/InterviewHistorySummary.vue'
 import { useAssistantStore } from '@/stores/assistant.store'
 import { useSessionStore } from '@/stores/session.store'
 import { useSubscriptionStore } from '@/stores/subscription.store'
@@ -49,6 +54,12 @@ const clearingCurrentInterview = ref(false)
 const activeTab = ref<'answer' | 'code' | 'screenshot'>('answer')
 const transcriptPanel = ref<HTMLElement | null>(null)
 const isNew = computed(() => route.params.id === 'new')
+const totalHistoryCount = computed(() => sessionStore.sessions.length)
+const historySummaryLoading = computed(() => sessionStore.loading && !sessionStore.sessions.length)
+const creditsRemaining = computed(() => subscriptionStore.subscription?.remainingCredits ?? 0)
+const minutesRemaining = computed(() =>
+  Math.floor(subscriptionStore.subscription?.remainingMinutes ?? 0),
+)
 const latestSuggestion = computed(() => assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1) ?? null)
 const activeRequests = new Set<AbortController>()
 const hasCurrentOutput = computed(
@@ -86,6 +97,16 @@ let speechFinalTimer = 0
 const safeConfidence = (value: unknown) => {
   const confidence = Number(value)
   return Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.8
+}
+
+const clearAnswerForQuestion = (question: string) => {
+  sessionStore.currentQuestion = question
+  sessionStore.liveQuestion = question
+  sessionStore.answer = ''
+  sessionStore.liveAnswer = ''
+  sessionStore.code = ''
+  sessionStore.provider = ''
+  sessionStore.confidence = 0
 }
 
 const createLiveSuggestion = (payload: {
@@ -129,20 +150,66 @@ const createLiveSuggestion = (payload: {
   sequence: payload.sequence,
 })
 
-const publishCompanionResult = (suggestion: Suggestion) => {
-  window.interviewMateDesktop?.floating.publish({
+const publishCompanionState = (payload: {
+  question: string
+  answer?: string
+  code?: string | null
+  output?: string | null
+  language?: string | null
+  complexity?: string | null
+  confidence?: number
+  provider?: string | null
+  reason: string
+}) => {
+  const result = {
+    question: payload.question,
+    answer: payload.answer ?? '',
+    code: payload.code ?? '',
+    output: payload.output ?? '',
+    language: payload.language ?? '',
+    complexity: payload.complexity ?? '',
+    confidence: safeConfidence(payload.confidence ?? 0),
+    provider: payload.provider ?? '',
+    screenStatus: sessionStore.screenStatus,
+    lastCapture: sessionStore.lastCapture,
+    screenshotPreviewUrl: sessionStore.screenshotPreviewUrl ?? '',
+    timestamp: new Date().toISOString(),
+  }
+  console.info('[CompanionSync] update sent', {
+    reason: payload.reason,
+    question: result.question,
+    answerLength: result.answer.length,
+    provider: result.provider || 'pending',
+  })
+  window.interviewMateDesktop?.floating.publish(result)
+}
+
+const publishCompanionQuestion = (question: string, reason: string) => {
+  publishCompanionState({
+    question,
+    answer: '',
+    confidence: 0,
+    provider: '',
+    reason,
+  })
+}
+
+const publishCompanionResult = (suggestion: Suggestion, reason = 'ai-response') => {
+  console.info('[CompanionSync] AI response received', {
+    reason,
+    question: suggestion.question,
+    answerLength: suggestion.answer.length,
+  })
+  publishCompanionState({
     question: suggestion.question,
     answer: suggestion.answer,
     code: suggestion.code ?? suggestion.fix ?? '',
     output: suggestion.output ?? '',
     language: suggestion.language ?? '',
     complexity: suggestion.complexity ?? '',
-    confidence: safeConfidence(suggestion.confidence),
+    confidence: suggestion.confidence,
     provider: suggestion.provider ?? '',
-    screenStatus: sessionStore.screenStatus,
-    lastCapture: sessionStore.lastCapture,
-    screenshotPreviewUrl: sessionStore.screenshotPreviewUrl??'',
-    timestamp: new Date().toISOString(),
+    reason,
   })
 }
 
@@ -167,6 +234,11 @@ const connectSocket = () => {
 
   socket.on('transcript:update', (payload) => {
     const transcript = payload as Transcript
+    console.info('[CompanionSync] transcript updated', {
+      sessionId: transcript.sessionId,
+      speaker: transcript.speaker,
+      length: transcript.text.length,
+    })
     transcriptStore.add(transcript)
     transcriptStore.interimText = ''
     sessionStore.updateTranscript(transcript)
@@ -174,15 +246,17 @@ const connectSocket = () => {
   socket.on('question:detected', (payload) => {
     const question = String((payload as { question?: string }).question ?? '')
     if (question) {
+      console.info('[CompanionSync] question detected', { question })
       assistantStore.detectQuestion(question)
-      sessionStore.currentQuestion = question
+      clearAnswerForQuestion(question)
+      publishCompanionQuestion(question, 'question-detected')
     }
   })
   socket.on('answer:generated', (payload) => {
     const suggestion = payload as Suggestion
     assistantStore.add(suggestion)
     sessionStore.updateSuggestion(suggestion)
-    publishCompanionResult(suggestion)
+    publishCompanionResult(suggestion, 'answer-generated')
   })
   socket.on('voice:partial', (payload) => {
     const partial = payload as VoicePartial
@@ -194,27 +268,37 @@ const connectSocket = () => {
   })
   socket.on('voice:question', (payload) => {
     const draft = payload as VoiceQuestionDraft
-    console.info('[Voice] Question Detected')
+    console.info('[CompanionSync] question detected', {
+      source: 'voice',
+      question: draft.question,
+      sequence: draft.sequence,
+    })
     assistantStore.detectQuestion(draft.question)
     sessionStore.updateVoiceQuestion(
       draft.question,
       draft.classification.type,
       draft.audioSource,
     )
+    clearAnswerForQuestion(draft.question)
     const liveSuggestion = createLiveSuggestion({
       sessionId: draft.sessionId,
       sequence: draft.sequence,
       question: draft.question,
-      answer: sessionStore.liveAnswer,
+      answer: '',
       confidence: draft.confidence,
       type: draft.classification.type,
     })
     assistantStore.updateLiveSuggestion(liveSuggestion)
-    publishCompanionResult(liveSuggestion)
+    publishCompanionQuestion(draft.question, 'voice-question')
   })
   socket.on('voice:answer:chunk', (payload) => {
     const chunk = payload as VoiceAnswerChunk
-    console.info('[Voice] AI Streaming Started')
+    console.info('[CompanionSync] AI request/stream update received', {
+      question: chunk.question,
+      sequence: chunk.sequence,
+      answerLength: chunk.answer.length,
+      done: chunk.done,
+    })
     const liveSuggestion = createLiveSuggestion({
       sessionId: chunk.sessionId,
       sequence: chunk.sequence,
@@ -230,10 +314,14 @@ const connectSocket = () => {
       chunk.confidence,
       chunk.provider,
     )
-    publishCompanionResult(liveSuggestion)
+    publishCompanionResult(liveSuggestion, 'voice-answer-chunk')
   })
   socket.on('voice:answer:complete', (payload) => {
     const suggestion = payload as Suggestion
+    console.info('[CompanionSync] AI response complete', {
+      question: suggestion.question,
+      answerLength: suggestion.answer.length,
+    })
     const liveSuggestion = createLiveSuggestion({
       ...suggestion,
       answer: suggestion.answer,
@@ -246,14 +334,22 @@ const connectSocket = () => {
       liveSuggestion.confidence,
       liveSuggestion.provider,
     )
-    publishCompanionResult(liveSuggestion)
+    publishCompanionResult(liveSuggestion, 'voice-answer-complete')
   })
   socket.on('screen:updated', (payload) => {
     const context = payload as ScreenContext
     assistantStore.updateScreenContext(context)
     sessionStore.updateScreenContext(context)
-    const latest = assistantStore.suggestions.at(-1)
-    if (latest) publishCompanionResult(latest)
+    console.info('[CompanionSync] screen context updated', {
+      sessionId: context.sessionId,
+      detectedQuestion: context.detectedQuestion,
+      codeDetected: context.codeDetected,
+    })
+    const latest = assistantStore.liveSuggestion ?? assistantStore.suggestions.at(-1)
+    if (latest) publishCompanionResult(latest, 'screen-updated')
+    else if (sessionStore.currentQuestion) {
+      publishCompanionQuestion(sessionStore.currentQuestion, 'screen-updated')
+    }
   })
   socket.on('interview:started', (payload) => {
     const result = payload as {
@@ -783,6 +879,19 @@ const uploadAudioChunk = (sessionId: string, audio: Blob, runId: number) => {
         audio,
         controller.signal,
       )
+      console.info('[CompanionSync] transcript HTTP response received', {
+        sessionId,
+        transcriptLength: result.transcript.text.length,
+        hasSuggestion: Boolean(result.suggestion),
+      })
+      transcriptStore.add(result.transcript)
+      transcriptStore.interimText = ''
+      sessionStore.updateTranscript(result.transcript)
+      if (result.suggestion) {
+        assistantStore.add(result.suggestion)
+        sessionStore.updateSuggestion(result.suggestion)
+        publishCompanionResult(result.suggestion, 'transcribe-http-response')
+      }
       if (result.suggestionError) {
         assistantStore.generating = false
         console.warn('[Assistant] provider failover exhausted for this question')
@@ -975,6 +1084,7 @@ watch(
 
 onMounted(() => {
   void subscriptionStore.load()
+  if (isNew.value) void sessionStore.fetchSessions().catch(() => undefined)
   if (!isNew.value) void initializeSession(String(route.params.id))
 })
 
@@ -985,37 +1095,123 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <form
-    v-if="isNew"
-    class="im-card mx-auto max-w-2xl space-y-6 p-8"
-    @submit.prevent="createSession"
-  >
-    <div>
-      <h2 class="text-2xl font-bold">Create interview session</h2>
-      <p class="mt-2 text-sm text-slate-500">
-        Add basic interview details before opening the live session.
+  <section v-if="isNew" class="im-live-onboarding-page space-y-5">
+    <!-- <div>
+      <p class="text-[12px] font-bold uppercase tracking-[0.12em] text-violet-300">Workspace</p>
+      <h1 class="mt-1.5 text-[32px] font-extrabold leading-none text-slate-50">Live Interview</h1>
+      <p class="mt-2 text-[14px] font-medium text-slate-300">
+        Start an AI-powered interview session with real-time assistance.
       </p>
-    </div>
-    <label class="block text-sm font-semibold">
-      Session title
-      <input v-model="form.title" required class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Frontend Interview" />
-    </label>
-    <div class="grid gap-4 sm:grid-cols-2">
-      <label class="block text-sm font-semibold">
-        Company
-        <input v-model="form.company" class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Company name" />
-      </label>
-      <label class="block text-sm font-semibold">
-        Role
-        <input v-model="form.role" required class="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-slate-100" placeholder="Frontend Developer" />
-      </label>
-    </div>
-    <button class="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-5 py-3 font-semibold text-white disabled:opacity-60" :disabled="creating">
-      <ArrowPathIcon v-if="creating" class="h-5 w-5" />
-      <MicrophoneIcon v-else class="h-5 w-5" />
-      {{ creating ? 'Creating...' : 'Create Session' }}
-    </button>
-  </form>
+    </div> -->
+
+    <section class="relative flex min-h-[112px] overflow-hidden rounded-[18px] border border-violet-400/25 bg-[linear-gradient(110deg,rgba(26,16,55,.96),rgba(10,16,29,.96)_42%,rgba(15,33,63,.94))] px-5 py-4">
+      <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_50%,rgba(124,58,237,.28),transparent_28%),radial-gradient(circle_at_86%_42%,rgba(34,211,238,.12),transparent_28%)]"></div>
+      <div class="relative z-10 flex w-full flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex min-w-0 items-center gap-4">
+          <div class="hidden h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-violet-300/20 bg-violet-400/10 text-violet-200 sm:flex">
+            <MicrophoneIcon class="h-9 w-9" />
+          </div>
+          <div class="min-w-0">
+            <h2 class="text-[21px] font-extrabold text-slate-50">Live Interview</h2>
+            <p class="mt-2 line-clamp-2 max-w-2xl text-[14px] font-medium leading-5 text-slate-300">
+              Start an AI-powered interview session with real-time OCR, coding challenge detection, and intelligent answer generation.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid shrink-0 gap-3 sm:grid-cols-2">
+          <div class="min-w-[176px] rounded-[14px] border border-[#263347] bg-[#111827]/80 px-4 py-3">
+            <div class="flex items-center gap-3">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-300">
+                <BanknotesIcon class="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <p class="text-[12px] font-medium text-slate-400">Credits Remaining</p>
+                <p class="mt-1 text-[24px] font-extrabold leading-none text-slate-50">{{ creditsRemaining }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="min-w-[176px] rounded-[14px] border border-[#263347] bg-[#111827]/80 px-4 py-3">
+            <div class="flex items-center gap-3">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-300">
+                <ClockIcon class="h-[18px] w-[18px]" />
+              </span>
+              <div>
+                <p class="text-[12px] font-medium text-slate-400">Minutes Remaining</p>
+                <p class="mt-1 text-[24px] font-extrabold leading-none text-slate-50">{{ minutesRemaining }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <form
+      class="mx-auto max-w-4xl rounded-[18px] border border-[#263347] bg-[#0e1422] p-6 shadow-[0_22px_70px_rgba(0,0,0,.24)]"
+      @submit.prevent="createSession"
+    >
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <h2 class="text-[22px] font-extrabold text-slate-50">Create Interview Session</h2>
+        <InterviewHistorySummary
+          :total-interviews="totalHistoryCount"
+          :is-loading="historySummaryLoading"
+        />
+      </div>
+      <div>
+        <p class="mt-2 text-[14px] font-medium text-slate-400">
+          Add basic interview details before opening the live session.
+        </p>
+      </div>
+
+      <div class="mt-5 border-t border-[#263347] pt-4">
+        <label class="block text-[14px] font-bold text-slate-100">
+          Session Title
+          <input
+            v-model="form.title"
+            required
+            class="mt-2 h-[46px] w-full rounded-xl border border-violet-400/70 bg-white/[0.04] px-4 text-slate-100 outline-none transition focus:border-cyan-400"
+            placeholder="e.g. Frontend Interview"
+          />
+        </label>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="block text-[14px] font-bold text-slate-100">
+            Company
+            <input
+              v-model="form.company"
+              class="mt-2 h-[46px] w-full rounded-xl border border-[#334155] bg-white/[0.04] px-4 text-slate-100 outline-none transition focus:border-cyan-400"
+              placeholder="e.g. Google, Microsoft"
+            />
+          </label>
+          <label class="block text-[14px] font-bold text-slate-100">
+            Role
+            <input
+              v-model="form.role"
+              required
+              class="mt-2 h-[46px] w-full rounded-xl border border-[#334155] bg-white/[0.04] px-4 text-slate-100 outline-none transition focus:border-cyan-400"
+              placeholder="e.g. Frontend Developer"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-center">
+        <button
+          class="inline-flex h-12 w-full items-center justify-center gap-3 rounded-[10px] bg-[linear-gradient(90deg,#7c3aed,#2f80ed)] px-8 text-[15px] font-extrabold text-white transition hover:scale-[1.01] disabled:opacity-60 sm:w-auto sm:min-w-[360px]"
+          :disabled="creating"
+        >
+          <ArrowPathIcon v-if="creating" class="h-5 w-5" />
+          <RocketLaunchIcon v-else class="h-5 w-5" />
+          {{ creating ? 'Creating...' : 'Start Live Interview' }}
+        </button>
+      </div>
+    </form>
+
+    <p class="mt-[-4px] flex items-center justify-center gap-2 text-[14px] font-medium text-slate-400">
+      <ShieldCheckIcon class="h-5 w-5 text-violet-300" />
+      Your session is secure and private. We never store your interview data.
+    </p>
+  </section>
 
   <div v-else-if="sessionStore.loading && !sessionStore.activeSession" class="flex min-h-480px items-center justify-center">
     <div class="w-full max-w-4xl space-y-4">

@@ -1,17 +1,90 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import SupportForm from '@/components/support/SupportForm.vue'
+import VersionInformationCard from '@/components/support/VersionInformationCard.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import {
+  getSupportVersionInfo,
+  submitSupportRequest,
+  type SupportDiagnostics,
+  type SupportRequest,
+  type SupportRequestType,
+} from '@/services/supportService'
+import { useAuthStore } from '@/stores/auth.store'
+import { useSubscriptionStore } from '@/stores/subscription.store'
+import { useUiStore } from '@/stores/ui.store'
 
 const ready = ref(false)
-const isDesktopRuntime = Boolean(window.interviewMateDesktop?.isElectron)
-const runtimeLabel = isDesktopRuntime ? 'Desktop' : 'Web'
-const diagnostics = [
-  ['Network', navigator.onLine ? 'Online' : 'Offline'],
-  ['Desktop runtime', isDesktopRuntime ? 'Electron' : 'Browser'],
-  ['Platform', window.interviewMateDesktop?.platform ?? navigator.platform],
+const submitting = ref(false)
+const selectedType = ref<SupportRequestType>('support')
+const authStore = useAuthStore()
+const subscriptionStore = useSubscriptionStore()
+const uiStore = useUiStore()
+const versionInfo = ref<SupportDiagnostics>({})
+const user = computed(() => authStore.user)
+const subscription = computed(() => subscriptionStore.subscription)
+
+const supportOptions: Array<{
+  type: SupportRequestType
+  title: string
+  description: string
+  placeholder: string
+}> = [
+  {
+    type: 'support',
+    title: 'Contact Support',
+    description: 'Send account, billing, or technical questions to the support team.',
+    placeholder: 'How can we help you?',
+  },
+  {
+    type: 'bug',
+    title: 'Report a Bug',
+    description: 'Share logs, screenshots, and steps to reproduce product issues.',
+    placeholder: 'Describe the issue, what happened, and how to reproduce it.',
+  },
+  {
+    type: 'feature',
+    title: 'Feature Request',
+    description: 'Suggest improvements for AI answers, screen capture, or workflow controls.',
+    placeholder: "Tell us about the feature you'd like to see.",
+  },
 ]
 
+const selectedOption = computed(
+  () => supportOptions.find((option) => option.type === selectedType.value) ?? supportOptions[0]!,
+)
+
+const refreshVersionInfo = () => {
+  versionInfo.value = getSupportVersionInfo()
+}
+
+const handleSubmit = async (request: SupportRequest) => {
+  submitting.value = true
+  try {
+    await submitSupportRequest(request, {
+      user: user.value,
+      subscription: subscription.value,
+    })
+    refreshVersionInfo()
+    uiStore.pushToast({
+      type: 'success',
+      title: 'Your request has been submitted successfully.',
+      description: "We'll review it and get back to you as soon as possible.",
+    })
+  } catch {
+    uiStore.pushToast({
+      type: 'error',
+      title: 'Could not submit report',
+      description: 'Please check your connection and try again.',
+    })
+  } finally {
+    submitting.value = false
+  }
+}
+
 onMounted(() => {
+  void subscriptionStore.load().finally(refreshVersionInfo)
+  refreshVersionInfo()
   window.requestAnimationFrame(() => {
     ready.value = true
   })
@@ -19,98 +92,61 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="im-prototype-page">
-    <!-- <section>
-      <h1 class="text-[40px] font-extrabold leading-none text-slate-50">Support</h1>
-      <p class="mt-5 text-[14px] font-medium text-slate-300">Help center, diagnostics, and product feedback</p>
+  <div class="im-support-page">
+    <section>
+      <h1 class="text-[36px] font-extrabold leading-none text-slate-50">Support</h1>
+      <p class="mt-2 text-[14px] font-medium text-slate-300">Help center, diagnostics, and product feedback</p>
     </section>
 
-    <section v-if="!ready" class="mt-9 grid gap-6 xl:grid-cols-3">
-      <article v-for="item in 3" :key="item" class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <SkeletonBlock class="h-5 w-36" />
-        <SkeletonBlock class="mt-5 h-4 w-full" />
-        <SkeletonBlock class="mt-3 h-4 w-2/3" />
-      </article>
-    </section>
-
-    <section v-else class="mt-9 grid gap-6 xl:grid-cols-3">
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <h2 class="text-[19px] font-bold text-slate-50">Help Center</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Find setup guides for screen capture, audio, Invisible Mode, and Companion Window usage.</p>
-      </article>
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <h2 class="text-[19px] font-bold text-slate-50">Documentation</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Review feature behavior, privacy notes, and troubleshooting steps for meeting apps.</p>
-      </article>
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <h2 class="text-[19px] font-bold text-slate-50">FAQ</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Answers for common questions about credits, capture protection, and interview sessions.</p>
-      </article>
-    </section> -->
-
-    <section v-if="!ready" class="mt-6 grid gap-6 xl:grid-cols-3">
-      <article v-for="item in 3" :key="item" class="rounded-[18px] border border-[#334155] bg-[#111827] p-8">
+    <section v-if="!ready" class="mt-4 grid gap-4 xl:grid-cols-3">
+      <article v-for="item in 3" :key="item" class="min-h-[140px] rounded-[18px] border border-[#334155] bg-[#111827] px-8 py-5">
         <SkeletonBlock class="h-5 w-36" />
         <SkeletonBlock class="mt-5 h-4 w-full" />
         <SkeletonBlock class="mt-3 h-4 w-3/4" />
       </article>
     </section>
 
-    <section v-else class="mt-6 grid gap-6 xl:grid-cols-3">
-      <button class="rounded-[18px] border border-[#334155] bg-[#111827] p-8 text-left transition hover:border-cyan-400">
-        <h2 class="text-[19px] font-bold text-slate-50">Contact Support</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Send account, billing, or technical questions to the support team.</p>
-      </button>
-      <button class="rounded-[18px] border border-[#334155] bg-[#111827] p-8 text-left transition hover:border-cyan-400">
-        <h2 class="text-[19px] font-bold text-slate-50">Report a Bug</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Share logs, screenshots, and steps to reproduce product issues.</p>
-      </button>
-      <button class="rounded-[18px] border border-[#334155] bg-[#111827] p-8 text-left transition hover:border-cyan-400">
-        <h2 class="text-[19px] font-bold text-slate-50">Feature Request</h2>
-        <p class="mt-5 text-[14px] font-medium text-slate-300">Suggest improvements for AI answers, screen capture, or workflow controls.</p>
+    <section v-else class="mt-4 grid gap-4 xl:grid-cols-3">
+      <button
+        v-for="option in supportOptions"
+        :key="option.type"
+        class="min-h-[140px] rounded-[18px] border border-[#334155] bg-[#111827] px-8 py-5 text-left transition hover:border-cyan-400"
+        :class="selectedType === option.type ? 'border-cyan-400' : ''"
+        @click="selectedType = option.type"
+      >
+        <h2 class="text-[19px] font-bold text-slate-50">{{ option.title }}</h2>
+        <p class="mt-4 text-[14px] font-medium text-slate-300">{{ option.description }}</p>
       </button>
     </section>
 
-    <section v-if="!ready" class="mt-6 grid gap-6 xl:grid-cols-[1fr_420px]">
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
+    <section v-if="!ready" class="mt-5 grid items-stretch gap-5 xl:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
+      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-5">
         <SkeletonBlock class="h-5 w-32" />
-        <div class="mt-7 grid gap-4 md:grid-cols-2">
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
           <div v-for="item in 4" :key="item" class="rounded-[10px] border border-[#334155] bg-[#111827] p-4">
             <SkeletonBlock class="h-3 w-24" />
             <SkeletonBlock class="mt-3 h-4 w-32" />
           </div>
         </div>
       </article>
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
+      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-5">
         <SkeletonBlock class="h-5 w-40" />
-        <div class="mt-7 space-y-4">
+        <div class="mt-4 space-y-3">
           <SkeletonBlock v-for="item in 3" :key="item" class="h-4 w-full" />
         </div>
       </article>
     </section>
 
-    <section v-else class="mt-6 grid gap-6 xl:grid-cols-[1fr_420px]">
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <h2 class="text-[19px] font-bold text-slate-50">Diagnostics</h2>
-        <div class="mt-7 grid gap-4 md:grid-cols-2">
-          <div
-            v-for="[label, value] in diagnostics"
-            :key="label"
-            class="rounded-[10px] border border-[#334155] bg-[#111827] p-4"
-          >
-            <p class="text-[11px] font-bold uppercase text-slate-500">{{ label }}</p>
-            <p class="mt-3 text-[14px] font-bold text-slate-200">{{ value }}</p>
-          </div>
-        </div>
-      </article>
-
-      <article class="rounded-[18px] border border-[#263347] bg-[#0e1422] p-8">
-        <h2 class="text-[19px] font-bold text-slate-50">Version Information</h2>
-        <div class="mt-7 space-y-4 text-[14px] font-medium text-slate-300">
-          <p class="flex justify-between"><span>App</span><span>Interview Mate AI</span></p>
-          <p class="flex justify-between"><span>Runtime</span><span>{{ runtimeLabel }}</span></p>
-        </div>
-      </article>
+    <section v-else class="mt-5 grid items-stretch gap-5 xl:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
+      <SupportForm
+        :initial-email="user?.email ?? ''"
+        :loading="submitting"
+        :selected-type="selectedType"
+        :title="selectedOption.title"
+        :placeholder="selectedOption.placeholder"
+        @submit="handleSubmit"
+      />
+      <VersionInformationCard :info="versionInfo" />
     </section>
   </div>
 </template>
