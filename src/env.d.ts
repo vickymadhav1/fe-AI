@@ -48,6 +48,9 @@ interface Window {
   interviewMateDesktop?: {
     isElectron: boolean
     platform: string
+    logging: {
+      setContext(context: { sessionId?: string; lifecycleId?: string }): void
+    }
     capture: {
       listSources(): Promise<CaptureSource[]>
       saveDebug(bytes: Uint8Array, width: number, height: number): Promise<string>

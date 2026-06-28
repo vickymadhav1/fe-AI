@@ -206,14 +206,14 @@ const kpiItems = computed<DashboardKpi[]>(() => [
 
     <template v-if="dashboardLoading">
       <section class="grid gap-6 xl:grid-cols-[1.35fr_.85fr]">
-        <article v-for="item in 2" :key="item" class="h-[260px] rounded-2xl border border-[#263249] bg-[#101827] p-6">
+        <article v-for="item in 2" :key="item" class="h-260px rounded-2xl border border-[#263249] bg-[#101827] p-6">
           <SkeletonBlock class="h-5 w-40" />
           <SkeletonBlock class="mt-7 h-16 w-64 rounded-xl" />
           <SkeletonBlock class="mt-7 h-24 w-full rounded-xl" />
         </article>
       </section>
       <section class="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        <article v-for="item in 6" :key="item" class="h-[132px] rounded-2xl border border-[#263249] bg-[#101827] p-6">
+        <article v-for="item in 6" :key="item" class="h-132px rounded-2xl border border-[#263249] bg-[#101827] p-6">
           <SkeletonBlock class="h-5 w-36" />
           <SkeletonBlock class="mt-5 h-9 w-24 rounded-lg" />
         </article>

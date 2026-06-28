@@ -23,9 +23,15 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { stealthBridge, type StealthResult } from './stealth/stealth-bridge.js'
+import { createCorrelationId, installConsoleLogger, logger } from './logger.js'
 
+installConsoleLogger()
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const isDevelopment = !app.isPackaged && process.argv.includes('--dev')
+const isProductionRuntime =
+  app.isPackaged ||
+  process.env.NODE_ENV === 'production' ||
+  process.argv.includes('--production')
+const isDevelopment = !isProductionRuntime
 let desktopPort = 47831
 const execFileAsync = promisify(execFile)
 
@@ -45,6 +51,8 @@ let tray: Tray | null = null
 let latestStealthResult: StealthResult | null = null
 let companionShutdownResolve: (() => void) | null = null
 let companionShutdownTimer: NodeJS.Timeout | null = null
+let companionCloseBypass = false
+let companionShutdownPromise: Promise<void> | null = null
 
 interface FloatingResult {
   question: string
@@ -90,6 +98,47 @@ interface IpcFailure {
   success: false
   code: IpcFailureCode
   message: string
+  correlationId?: string
+}
+
+interface IpcCorrelation {
+  __interviewMateIpc: true
+  correlationId: string
+  sessionId?: string
+  lifecycleId?: string
+}
+
+const readIpcCorrelation = (args: unknown[]) => {
+  const candidate = args[0]
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    '__interviewMateIpc' in candidate &&
+    candidate.__interviewMateIpc === true
+  ) {
+    const metadata = candidate as IpcCorrelation
+    return {
+      context: {
+        correlationId:
+          typeof metadata.correlationId === 'string'
+            ? metadata.correlationId
+            : createCorrelationId(),
+        ...(typeof metadata.sessionId === 'string' ? { sessionId: metadata.sessionId } : {}),
+        ...(typeof metadata.lifecycleId === 'string'
+          ? { lifecycleId: metadata.lifecycleId }
+          : {}),
+      },
+      args: args.slice(1),
+    }
+  }
+  return { context: { correlationId: createCorrelationId() }, args }
+}
+
+const withIpcCorrelation = (value: unknown, correlationId: string) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || ArrayBuffer.isView(value)) {
+    return value
+  }
+  return { ...value, correlationId }
 }
 
 class IpcSecurityError extends Error {
@@ -382,6 +431,21 @@ const rendererUrl = (route = '') =>
     ? `http://localhost:5173${route}`
     : `http://localhost:${desktopPort}${route}`
 
+const enableDevelopmentDevToolsShortcut = (window: BrowserWindow) => {
+  if (!isDevelopment) return
+  window.webContents.on('before-input-event', (event, input) => {
+    const isDevToolsShortcut =
+      input.type === 'keyDown' &&
+      input.key.toLowerCase() === 'i' &&
+      (input.meta || input.control) &&
+      input.alt
+
+    if (!isDevToolsShortcut) return
+    event.preventDefault()
+    window.webContents.toggleDevTools()
+  })
+}
+
 const createFloatingWindow = async () => {
   const state = await readCompanionState()
   floatingWindow = new BrowserWindow({
@@ -412,6 +476,7 @@ const createFloatingWindow = async () => {
       devTools: isDevelopment,
     },
   })
+  enableDevelopmentDevToolsShortcut(floatingWindow)
   floatingWindow.setAlwaysOnTop(state.alwaysOnTop, 'floating')
   floatingWindow.setOpacity(state.transparency)
   applyCaptureProtection()
@@ -423,6 +488,11 @@ const createFloatingWindow = async () => {
   })
   floatingWindow.on('closed', () => {
     floatingWindow = null
+  })
+  floatingWindow.on('close', (event) => {
+    if (isQuitting || companionCloseBypass || companionShutdownResolve) return
+    event.preventDefault()
+    void requestInterviewShutdown()
   })
   floatingWindow.on('resize', () => void persistCompanionState())
   floatingWindow.on('move', () => void persistCompanionState())
@@ -461,8 +531,17 @@ const startCompanion = async () => {
 
 const stopCompanion = () => {
   void persistCompanionState()
-  floatingWindow?.close()
-  floatingWindow = null
+  if (!floatingWindow || floatingWindow.isDestroyed()) {
+    floatingWindow = null
+    return
+  }
+
+  companionCloseBypass = true
+  try {
+    floatingWindow.close()
+  } finally {
+    companionCloseBypass = false
+  }
 }
 
 const minimizeCompanion = () => {
@@ -477,13 +556,16 @@ const completeCompanionShutdown = () => {
   }
   companionShutdownResolve?.()
   companionShutdownResolve = null
+  companionShutdownPromise = null
   stopCompanion()
 }
 
 const requestInterviewShutdown = () =>
-  new Promise<void>((resolve) => {
+  companionShutdownPromise ??
+  (companionShutdownPromise = new Promise<void>((resolve) => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       stopCompanion()
+      companionShutdownPromise = null
       resolve()
       return
     }
@@ -500,7 +582,7 @@ const requestInterviewShutdown = () =>
     mainWindow.show()
     mainWindow.focus()
     mainWindow.webContents.send('companion:shutdown-requested')
-  })
+  }))
 
 const getCompanionWindowState = () => {
   if (!floatingWindow || floatingWindow.isDestroyed()) return null
@@ -599,26 +681,25 @@ const assertAllowedSender = (
   throw new IpcSecurityError('FORBIDDEN_SENDER', 'This renderer is not allowed to use this IPC channel.')
 }
 
-const logIpcRejection = (channel: string, failure: IpcFailure) => {
-  console.warn('[IPC] rejected request', {
-    channel,
-    code: failure.code,
-    message: failure.message,
-  })
-}
-
 const safeHandle = (
   channel: string,
   allowedSenders: IpcSender[],
   handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>,
 ) => {
   ipcMain.handle(channel, async (event, ...args) => {
+    const correlated = readIpcCorrelation(args)
+    const ipcLogger = logger.child({ ...correlated.context, ipcChannel: channel })
     try {
       assertAllowedSender(event, allowedSenders)
-      return await handler(event, ...args)
+      ipcLogger.debug('IPC request received')
+      const result = await handler(event, ...correlated.args)
+      return withIpcCorrelation(result, correlated.context.correlationId)
     } catch (error) {
-      const failure = toIpcFailure(error)
-      logIpcRejection(channel, failure)
+      const failure = {
+        ...toIpcFailure(error),
+        correlationId: correlated.context.correlationId,
+      }
+      ipcLogger.warn('IPC request rejected', failure)
       return failure
     }
   })
@@ -630,12 +711,15 @@ const safeOn = (
   handler: (event: IpcMainEvent, ...args: unknown[]) => unknown | Promise<unknown>,
 ) => {
   ipcMain.on(channel, (event, ...args) => {
+    const correlated = readIpcCorrelation(args)
+    const ipcLogger = logger.child({ ...correlated.context, ipcChannel: channel })
     void (async () => {
       try {
         assertAllowedSender(event, allowedSenders)
-        await handler(event, ...args)
+        ipcLogger.debug('IPC event received')
+        await handler(event, ...correlated.args)
       } catch (error) {
-        logIpcRejection(channel, toIpcFailure(error))
+        ipcLogger.warn('IPC event rejected', toIpcFailure(error))
       }
     })()
   })
@@ -728,6 +812,7 @@ const createWindow = () => {
       devTools: isDevelopment,
     },
   })
+  enableDevelopmentDevToolsShortcut(window)
   mainWindow = window
   applyCaptureProtection()
 

@@ -33,6 +33,7 @@ import type {
   VoicePartial,
   VoiceQuestionDraft,
 } from '@/types'
+import { logger } from '@/utils/logger'
 
 const route = useRoute()
 const router = useRouter()
@@ -130,7 +131,25 @@ let liveVoiceSequence = 0
 let speechFinalTimer = 0
 let realtimeLifecycleLoggingRegistered = false
 let activeRealtimeSessionId = ''
+let interviewShuttingDown = false
 let removeCompanionShutdownListener: (() => void) | undefined
+
+const updateLogContext = (sessionId?: string) => {
+  const next = {
+    ...(sessionId ? { sessionId } : {}),
+    lifecycleId,
+  }
+  logger.setContext(next)
+  window.interviewMateDesktop?.logging.setContext({
+    ...(sessionId ? { sessionId } : {}),
+    lifecycleId: String(lifecycleId),
+  })
+}
+
+const clearLogContext = () => {
+  logger.clearContext('sessionId', 'lifecycleId')
+  window.interviewMateDesktop?.logging.setContext({})
+}
 
 const safeConfidence = (value: unknown) => {
   const confidence = Number(value)
@@ -270,10 +289,51 @@ const removeSocketListeners = () => {
   socket.off('server:error')
 }
 
+const isCurrentSocketEvent = (sessionId?: string) =>
+  Boolean(
+    sessionStore.activeSession?.id &&
+      sessionStore.isRunning &&
+      !interviewShuttingDown &&
+      activeRealtimeSessionId &&
+      sessionId &&
+      sessionId === sessionStore.activeSession.id &&
+      sessionId === activeRealtimeSessionId,
+  )
+
+const beginSocketShutdown = () => {
+  interviewShuttingDown = true
+  activeRealtimeSessionId = ''
+  socket.io.reconnection(false)
+}
+
+const resetSocketShutdown = () => {
+  interviewShuttingDown = false
+  socket.io.reconnection(true)
+}
+
+const isActiveOcrRequest = (sessionId: string | undefined, runId: number) =>
+  Boolean(
+    sessionId &&
+      sessionStore.activeSession?.id === sessionId &&
+      sessionStore.isRunning &&
+      !interviewShuttingDown &&
+      runId === lifecycleId,
+  )
+
+const isActiveAiResponse = (sessionId: string | undefined, runId: number) =>
+  Boolean(
+    sessionId &&
+      sessionStore.activeSession?.id === sessionId &&
+      sessionStore.isRunning &&
+      !interviewShuttingDown &&
+      runId === lifecycleId,
+  )
+
 const registerRealtimeLifecycleLogging = () => {
   if (realtimeLifecycleLoggingRegistered) return
   realtimeLifecycleLoggingRegistered = true
   socket.on('connect', () => {
+    if (interviewShuttingDown) return
     console.info('[Realtime] socket connected', {
       id: socket.id,
       connected: socket.connected,
@@ -292,9 +352,11 @@ const registerRealtimeLifecycleLogging = () => {
     })
   })
   socket.io.on('reconnect_attempt', (attempt) => {
+    if (interviewShuttingDown) return
     console.info('[Realtime] reconnect attempt', { attempt })
   })
   socket.io.on('reconnect', (attempt) => {
+    if (interviewShuttingDown) return
     console.info('[Realtime] socket reconnected', {
       id: socket.id,
       connected: socket.connected,
@@ -303,6 +365,7 @@ const registerRealtimeLifecycleLogging = () => {
     })
   })
   socket.on('connect_error', (error) => {
+    if (interviewShuttingDown) return
     console.warn('[Realtime] connect error', {
       message: error.message,
       connected: socket.connected,
@@ -312,6 +375,7 @@ const registerRealtimeLifecycleLogging = () => {
 
 const ensureRealtimeConnected = (sessionId: string, timeoutMs = 3_000) =>
   new Promise<boolean>((resolve) => {
+    resetSocketShutdown()
     registerRealtimeLifecycleLogging()
     activeRealtimeSessionId = sessionId
     console.info('[Realtime] ensure connection', {
@@ -355,14 +419,17 @@ const ensureRealtimeConnected = (sessionId: string, timeoutMs = 3_000) =>
   })
 
 const connectSocket = () => {
+  resetSocketShutdown()
   removeSocketListeners()
   registerRealtimeLifecycleLogging()
   activeRealtimeSessionId = String(route.params.id)
+  const socketLifecycleId = lifecycleId
   if (!socket.connected) socket.connect()
   socket.emit('session:join', { sessionId: activeRealtimeSessionId })
 
   socket.on('transcript:update', (payload) => {
     const transcript = payload as Transcript
+    if (!isCurrentSocketEvent(transcript.sessionId)) return
     console.info('[CompanionSync] transcript updated', {
       sessionId: transcript.sessionId,
       speaker: transcript.speaker,
@@ -374,7 +441,8 @@ const connectSocket = () => {
   })
   socket.on('question:detected', (payload) => {
     const question = String((payload as { question?: string }).question ?? '')
-    if (question) {
+    const sessionId = String((payload as { sessionId?: string }).sessionId ?? activeRealtimeSessionId)
+    if (question && isCurrentSocketEvent(sessionId)) {
       console.info('[CompanionSync] question detected', { question })
       assistantStore.detectQuestion(question)
       clearAnswerForQuestion(question)
@@ -383,13 +451,14 @@ const connectSocket = () => {
   })
   socket.on('answer:generated', (payload) => {
     const suggestion = payload as Suggestion
+    if (!isCurrentSocketEvent(suggestion.sessionId) || !isActiveAiResponse(suggestion.sessionId, socketLifecycleId)) return
     assistantStore.add(suggestion)
     sessionStore.updateSuggestion(suggestion)
     publishCompanionResult(suggestion, 'answer-generated')
   })
   socket.on('voice:partial', (payload) => {
     const partial = payload as VoicePartial
-    if (partial.text) {
+    if (partial.text && isCurrentSocketEvent(partial.sessionId)) {
       console.info('[Voice] Partial Transcript Updated')
       sessionStore.updateVoicePartial(partial.text, partial.source)
       transcriptStore.interimText = partial.text
@@ -397,6 +466,7 @@ const connectSocket = () => {
   })
   socket.on('voice:question', (payload) => {
     const draft = payload as VoiceQuestionDraft
+    if (!isCurrentSocketEvent(draft.sessionId)) return
     console.info('[CompanionSync] question detected', {
       source: 'voice',
       question: draft.question,
@@ -422,6 +492,7 @@ const connectSocket = () => {
   })
   socket.on('voice:answer:chunk', (payload) => {
     const chunk = payload as VoiceAnswerChunk
+    if (!isCurrentSocketEvent(chunk.sessionId) || !isActiveAiResponse(chunk.sessionId, socketLifecycleId)) return
     console.info('[CompanionSync] AI request/stream update received', {
       question: chunk.question,
       sequence: chunk.sequence,
@@ -447,6 +518,7 @@ const connectSocket = () => {
   })
   socket.on('voice:answer:complete', (payload) => {
     const suggestion = payload as Suggestion
+    if (!isCurrentSocketEvent(suggestion.sessionId) || !isActiveAiResponse(suggestion.sessionId, socketLifecycleId)) return
     console.info('[CompanionSync] AI response complete', {
       question: suggestion.question,
       answerLength: suggestion.answer.length,
@@ -467,6 +539,7 @@ const connectSocket = () => {
   })
   socket.on('screen:updated', (payload) => {
     const context = payload as ScreenContext
+    if (!isCurrentSocketEvent(context.sessionId)) return
     assistantStore.updateScreenContext(context)
     sessionStore.updateScreenContext(context)
     console.info('[CompanionSync] screen context updated', {
@@ -485,6 +558,7 @@ const connectSocket = () => {
       activeMeetingApp?: string
       activeWindowTitle?: string
     }
+    if (interviewShuttingDown) return
     sessionStore.updateActiveMeeting(
       result.activeMeetingApp ?? sessionStore.activeMeetingApp,
       result.activeWindowTitle ?? sessionStore.activeWindowTitle,
@@ -554,6 +628,7 @@ const stopActiveMeetingPolling = () => {
 const emitInterviewStarted = () => {
   const sessionId = sessionStore.activeSession?.id
   if (!sessionId) return
+  resetSocketShutdown()
   const desktopPlatform = window.interviewMateDesktop?.platform ?? ''
 
   socket.emit('interview:start', {
@@ -768,8 +843,8 @@ const createSession = async () => {
 const handleCaptureFrame = (frame: CaptureFrame) => {
   const sessionId = sessionStore.activeSession?.id
   const runId = lifecycleId
-  if (!sessionId || !isRunning.value) return
-console.log('ANALYZE_SCREEN_CALLED')
+  if (!sessionId || !isActiveOcrRequest(sessionId, runId)) return
+
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
   screenshotPreviewUrl = URL.createObjectURL(frame.image)
   sessionStore.updateScreenshotPreview(screenshotPreviewUrl, frame.capturedAt)
@@ -787,21 +862,22 @@ console.log('ANALYZE_SCREEN_CALLED')
   if (frame.blank || !frame.changed) return
 
   screenAnalysisQueue = screenAnalysisQueue.then(async () => {
-    if (runId !== lifecycleId || !isRunning.value) return
+    if (!isActiveOcrRequest(sessionId, runId)) return
     const controller = new AbortController()
     activeRequests.add(controller)
     analyzingScreen.value = true
     try {
       console.info('[ScreenAnalysis] OCR and code detection requested')
       await api.analyzeScreen(
-  sessionId,
-  frame.image,
-  frame.sourceId,
-  frame.sourceName,
-  sessionStore.activeMeetingApp,
-  sessionStore.activeWindowTitle,
-  controller.signal,
-)
+        sessionId,
+        frame.image,
+        frame.sourceId,
+        frame.sourceName,
+        sessionStore.activeMeetingApp,
+        sessionStore.activeWindowTitle,
+        controller.signal,
+      )
+      if (!isActiveOcrRequest(sessionId, runId)) return
       console.info('[ScreenAnalysis] OCR, code detection, and AI prompt completed')
     } catch (error) {
       if (controller.signal.aborted) return
@@ -1027,7 +1103,7 @@ const startScreenCapture = async (): Promise<'pending-picker' | 'started' | 'una
 
 const uploadAudioChunk = (sessionId: string, audio: Blob, runId: number) => {
   audioUploadQueue = audioUploadQueue.then(async () => {
-    if (runId !== lifecycleId || !isRunning.value) return
+    if (!isActiveAiResponse(sessionId, runId)) return
     const controller = new AbortController()
     activeRequests.add(controller)
     transcribing.value = true
@@ -1043,15 +1119,18 @@ const uploadAudioChunk = (sessionId: string, audio: Blob, runId: number) => {
         transcriptLength: result.transcript.text.length,
         hasSuggestion: Boolean(result.suggestion),
       })
+      if (!isActiveAiResponse(sessionId, runId)) return
       transcriptStore.add(result.transcript)
       transcriptStore.interimText = ''
       sessionStore.updateTranscript(result.transcript)
       if (result.suggestion) {
+        if (!isActiveAiResponse(result.suggestion.sessionId, runId)) return
         assistantStore.add(result.suggestion)
         sessionStore.updateSuggestion(result.suggestion)
         publishCompanionResult(result.suggestion, 'transcribe-http-response')
       }
       if (result.suggestionError) {
+        if (!isActiveAiResponse(sessionId, runId)) return
         assistantStore.generating = false
         console.warn('[Assistant] provider failover exhausted for this question')
       }
@@ -1153,9 +1232,12 @@ const startAudioCapture = async (runId: number) => {
 
 const stopInterviewRuntime = async (
   notifyBackend = true,
-  options: { settleDuration?: boolean } = {},
+  options: { settleDuration?: boolean; closeCompanion?: boolean } = {},
 ) => {
   const shouldSettleDuration = options.settleDuration ?? true
+  const shouldCloseCompanion = options.closeCompanion ?? true
+  clearLogContext()
+  beginSocketShutdown()
   await restoreStealthMode()
   if (shouldSettleDuration) await settleInvisibleDuration()
   if (notifyBackend && sessionStore.isRunning) await emitInterviewStopped()
@@ -1169,9 +1251,12 @@ const stopInterviewRuntime = async (
   screenAnalyzerService.stop()
   removeSocketListeners()
   socket.disconnect()
-  activeRealtimeSessionId = ''
-  window.interviewMateDesktop?.floating.end()
-  console.info('[Interview] Companion Closed')
+  if (shouldCloseCompanion) {
+    window.interviewMateDesktop?.floating.end()
+    console.info('[Interview] Companion Closed')
+  } else {
+    console.info('[Interview] Companion Close Deferred Until Settlement')
+  }
   sessionStore.stopInterview()
   assistantStore.generating = false
   analyzingScreen.value = false
@@ -1197,6 +1282,7 @@ const startInterview = async () => {
     if (pendingStealthMode) await activateStealthMode()
 
     sessionStore.startInterview()
+    updateLogContext(sessionStore.activeSession.id)
     window.interviewMateDesktop?.floating.start()
     console.info('[Interview] Companion Opened')
     connectSocket()
@@ -1231,7 +1317,7 @@ const stopInterview = async () => {
 
 const shutdownFromCompanion = async () => {
   console.info('[Interview] Companion requested full shutdown')
-  await stopInterviewRuntime()
+  await stopInterviewRuntime(true, { closeCompanion: false })
   const sessionId = sessionStore.activeSession?.id
   if (sessionId) {
     try {
@@ -1247,6 +1333,7 @@ const shutdownFromCompanion = async () => {
     }
   }
   clearCurrentInterviewState()
+  clearLogContext()
   uiStore.pushToast({ type: 'info', title: 'Interview stopped from Companion' })
 }
 
@@ -1259,6 +1346,7 @@ const endSession = async () => {
     await subscriptionStore.load()
     uiStore.pushToast({ type: 'success', title: 'Session ended and saved' })
   } finally {
+    clearLogContext()
     endingSession.value = false
   }
 }
@@ -1310,12 +1398,17 @@ onMounted(() => {
   )
   void subscriptionStore.load()
   sessionStore.resumeDurationTimer(String(route.params.id))
+  if (sessionStore.isRunning && sessionStore.activeSession?.id) {
+    updateLogContext(sessionStore.activeSession.id)
+  }
   if (isNew.value) void sessionStore.fetchSessions().catch(() => undefined)
   if (!isNew.value) void initializeSession(String(route.params.id))
 })
 
 onBeforeUnmount(() => {
   removeCompanionShutdownListener?.()
+  removeSocketListeners()
+  if (sessionStore.isRunning || sessionStore.interviewStartTime) return
   sessionStore.stopDurationTimer()
   void stopInterviewRuntime(true, { settleDuration: false })
   if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)

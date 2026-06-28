@@ -6,8 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { stealthBridge } from './stealth/stealth-bridge.js';
+import { createCorrelationId, installConsoleLogger, logger } from './logger.js';
+installConsoleLogger();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDevelopment = !app.isPackaged && process.argv.includes('--dev');
+const isProductionRuntime = app.isPackaged ||
+    process.env.NODE_ENV === 'production' ||
+    process.argv.includes('--production');
+const isDevelopment = !isProductionRuntime;
 let desktopPort = 47831;
 const execFileAsync = promisify(execFile);
 if (!isDevelopment) {
@@ -26,6 +31,36 @@ let tray = null;
 let latestStealthResult = null;
 let companionShutdownResolve = null;
 let companionShutdownTimer = null;
+let companionCloseBypass = false;
+let companionShutdownPromise = null;
+const readIpcCorrelation = (args) => {
+    const candidate = args[0];
+    if (candidate &&
+        typeof candidate === 'object' &&
+        '__interviewMateIpc' in candidate &&
+        candidate.__interviewMateIpc === true) {
+        const metadata = candidate;
+        return {
+            context: {
+                correlationId: typeof metadata.correlationId === 'string'
+                    ? metadata.correlationId
+                    : createCorrelationId(),
+                ...(typeof metadata.sessionId === 'string' ? { sessionId: metadata.sessionId } : {}),
+                ...(typeof metadata.lifecycleId === 'string'
+                    ? { lifecycleId: metadata.lifecycleId }
+                    : {}),
+            },
+            args: args.slice(1),
+        };
+    }
+    return { context: { correlationId: createCorrelationId() }, args };
+};
+const withIpcCorrelation = (value, correlationId) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || ArrayBuffer.isView(value)) {
+        return value;
+    }
+    return { ...value, correlationId };
+};
 class IpcSecurityError extends Error {
     code;
     constructor(code, message) {
@@ -284,6 +319,20 @@ const startStaticServer = async () => {
 const rendererUrl = (route = '') => isDevelopment
     ? `http://localhost:5173${route}`
     : `http://localhost:${desktopPort}${route}`;
+const enableDevelopmentDevToolsShortcut = (window) => {
+    if (!isDevelopment)
+        return;
+    window.webContents.on('before-input-event', (event, input) => {
+        const isDevToolsShortcut = input.type === 'keyDown' &&
+            input.key.toLowerCase() === 'i' &&
+            (input.meta || input.control) &&
+            input.alt;
+        if (!isDevToolsShortcut)
+            return;
+        event.preventDefault();
+        window.webContents.toggleDevTools();
+    });
+};
 const createFloatingWindow = async () => {
     const state = await readCompanionState();
     floatingWindow = new BrowserWindow({
@@ -314,6 +363,7 @@ const createFloatingWindow = async () => {
             devTools: isDevelopment,
         },
     });
+    enableDevelopmentDevToolsShortcut(floatingWindow);
     floatingWindow.setAlwaysOnTop(state.alwaysOnTop, 'floating');
     floatingWindow.setOpacity(state.transparency);
     applyCaptureProtection();
@@ -325,6 +375,12 @@ const createFloatingWindow = async () => {
     });
     floatingWindow.on('closed', () => {
         floatingWindow = null;
+    });
+    floatingWindow.on('close', (event) => {
+        if (isQuitting || companionCloseBypass || companionShutdownResolve)
+            return;
+        event.preventDefault();
+        void requestInterviewShutdown();
     });
     floatingWindow.on('resize', () => void persistCompanionState());
     floatingWindow.on('move', () => void persistCompanionState());
@@ -360,8 +416,17 @@ const startCompanion = async () => {
 };
 const stopCompanion = () => {
     void persistCompanionState();
-    floatingWindow?.close();
-    floatingWindow = null;
+    if (!floatingWindow || floatingWindow.isDestroyed()) {
+        floatingWindow = null;
+        return;
+    }
+    companionCloseBypass = true;
+    try {
+        floatingWindow.close();
+    }
+    finally {
+        companionCloseBypass = false;
+    }
 };
 const minimizeCompanion = () => {
     void persistCompanionState();
@@ -374,27 +439,30 @@ const completeCompanionShutdown = () => {
     }
     companionShutdownResolve?.();
     companionShutdownResolve = null;
+    companionShutdownPromise = null;
     stopCompanion();
 };
-const requestInterviewShutdown = () => new Promise((resolve) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-        stopCompanion();
-        resolve();
-        return;
-    }
-    companionShutdownResolve = resolve;
-    if (companionShutdownTimer)
-        clearTimeout(companionShutdownTimer);
-    companionShutdownTimer = setTimeout(() => {
-        console.warn('[Companion] shutdown completion timed out');
-        companionShutdownResolve = null;
-        companionShutdownTimer = null;
-        resolve();
-    }, 20_000);
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('companion:shutdown-requested');
-});
+const requestInterviewShutdown = () => companionShutdownPromise ??
+    (companionShutdownPromise = new Promise((resolve) => {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+            stopCompanion();
+            companionShutdownPromise = null;
+            resolve();
+            return;
+        }
+        companionShutdownResolve = resolve;
+        if (companionShutdownTimer)
+            clearTimeout(companionShutdownTimer);
+        companionShutdownTimer = setTimeout(() => {
+            console.warn('[Companion] shutdown completion timed out');
+            companionShutdownResolve = null;
+            companionShutdownTimer = null;
+            resolve();
+        }, 20_000);
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('companion:shutdown-requested');
+    }));
 const getCompanionWindowState = () => {
     if (!floatingWindow || floatingWindow.isDestroyed())
         return null;
@@ -470,35 +538,38 @@ const assertAllowedSender = (event, allowedSenders) => {
     }
     throw new IpcSecurityError('FORBIDDEN_SENDER', 'This renderer is not allowed to use this IPC channel.');
 };
-const logIpcRejection = (channel, failure) => {
-    console.warn('[IPC] rejected request', {
-        channel,
-        code: failure.code,
-        message: failure.message,
-    });
-};
 const safeHandle = (channel, allowedSenders, handler) => {
     ipcMain.handle(channel, async (event, ...args) => {
+        const correlated = readIpcCorrelation(args);
+        const ipcLogger = logger.child({ ...correlated.context, ipcChannel: channel });
         try {
             assertAllowedSender(event, allowedSenders);
-            return await handler(event, ...args);
+            ipcLogger.debug('IPC request received');
+            const result = await handler(event, ...correlated.args);
+            return withIpcCorrelation(result, correlated.context.correlationId);
         }
         catch (error) {
-            const failure = toIpcFailure(error);
-            logIpcRejection(channel, failure);
+            const failure = {
+                ...toIpcFailure(error),
+                correlationId: correlated.context.correlationId,
+            };
+            ipcLogger.warn('IPC request rejected', failure);
             return failure;
         }
     });
 };
 const safeOn = (channel, allowedSenders, handler) => {
     ipcMain.on(channel, (event, ...args) => {
+        const correlated = readIpcCorrelation(args);
+        const ipcLogger = logger.child({ ...correlated.context, ipcChannel: channel });
         void (async () => {
             try {
                 assertAllowedSender(event, allowedSenders);
-                await handler(event, ...args);
+                ipcLogger.debug('IPC event received');
+                await handler(event, ...correlated.args);
             }
             catch (error) {
-                logIpcRejection(channel, toIpcFailure(error));
+                ipcLogger.warn('IPC event rejected', toIpcFailure(error));
             }
         })();
     });
@@ -589,6 +660,7 @@ const createWindow = () => {
             devTools: isDevelopment,
         },
     });
+    enableDevelopmentDevToolsShortcut(window);
     mainWindow = window;
     applyCaptureProtection();
     if (isDevelopment) {
@@ -845,3 +917,4 @@ app.on('before-quit', () => {
     }
     staticServer?.close();
 });
+//# sourceMappingURL=main.js.map

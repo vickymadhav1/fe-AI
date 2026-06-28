@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ref } from 'vue'
 import { appConfig } from '@/config/app.config'
+import { createCorrelationId, logger } from '@/utils/logger'
 import type { AiProviderHealth, AiSuggestion, ChatMessage, CreateInterviewPayload, DashboardStatistics, Interview, InterviewSession, InvisibleOrderResponse, InvisibleSubscription, ScreenContext, Suggestion, Transcript, User } from '@/types'
 
 export const apiClient = axios.create({
@@ -13,6 +14,13 @@ const trackedRequests = new WeakSet<object>()
 
 apiClient.interceptors.request.use(
   (config) => {
+    const requestId = createCorrelationId('http')
+    config.headers.set('X-Request-ID', requestId)
+    const logContext = logger.getContext()
+    if (logContext.sessionId) config.headers.set('X-Session-ID', logContext.sessionId)
+    if (logContext.lifecycleId !== undefined) {
+      config.headers.set('X-Lifecycle-ID', String(logContext.lifecycleId))
+    }
     const isBackgroundRequest = ['/screens/analyze', '/transcripts/transcribe'].some((path) =>
       config.url?.includes(path),
     )

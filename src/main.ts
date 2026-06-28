@@ -5,7 +5,9 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { logRazorpayFrontendConfigStatus } from '@/config/razorpay.config'
+import { installConsoleLogger } from '@/utils/logger'
 
+installConsoleLogger()
 const script = document.createElement('script')
 script.src = 'https://accounts.google.com/gsi/client'
 document.head.appendChild(script)

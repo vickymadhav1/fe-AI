@@ -1,0 +1,96 @@
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogContext {
+  correlationId?: string
+  requestId?: string
+  sessionId?: string
+  lifecycleId?: string | number
+  ipcChannel?: string
+}
+
+const sensitiveKeyPattern =
+  /authorization|token|secret|api[-_]?key|signature|password|email|question|answer|content|code|prompt|transcript|ocr|screenshot|image|audio|terminaloutput|output|keypoints|rootcause|fix/i
+const bearerPattern = /Bearer\s+[A-Za-z0-9._~+/=-]+/gi
+const jwtPattern = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
+const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
+
+const nativeConsole = {
+  debug: console.debug.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+  table: console.table.bind(console),
+}
+
+let context: LogContext = {}
+let consoleInstalled = false
+
+export const createCorrelationId = (prefix = 'log') =>
+  `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID()}`
+
+const redactString = (value: string) =>
+  value
+    .replace(bearerPattern, 'Bearer [REDACTED]')
+    .replace(jwtPattern, '[REDACTED_TOKEN]')
+    .replace(emailPattern, '[REDACTED_EMAIL]')
+
+export const redactLogValue = (value: unknown, seen = new WeakSet<object>()): unknown => {
+  if (typeof value === 'string') return redactString(value)
+  if (value instanceof Error) {
+    return { name: value.name, message: redactString(value.message) }
+  }
+  if (!value || typeof value !== 'object') return value
+  if (seen.has(value)) return '[CIRCULAR]'
+  seen.add(value)
+  if (Array.isArray(value)) return value.map((item) => redactLogValue(item, seen))
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      sensitiveKeyPattern.test(key) ? '[REDACTED]' : redactLogValue(item, seen),
+    ]),
+  )
+}
+
+const write = (level: LogLevel, message: unknown, ...details: unknown[]) => {
+  const output = {
+    timestamp: new Date().toISOString(),
+    runtime: 'renderer',
+    level,
+    ...context,
+    message: redactLogValue(message),
+    ...(details.length ? { details: details.map((item) => redactLogValue(item)) } : {}),
+  }
+  nativeConsole[level](output)
+}
+
+export const logger = {
+  debug: (message: unknown, ...details: unknown[]) => write('debug', message, ...details),
+  info: (message: unknown, ...details: unknown[]) => write('info', message, ...details),
+  warn: (message: unknown, ...details: unknown[]) => write('warn', message, ...details),
+  error: (message: unknown, ...details: unknown[]) => write('error', message, ...details),
+  setContext(next: Partial<LogContext>) {
+    context = { ...context, ...next }
+  },
+  clearContext(...keys: Array<keyof LogContext>) {
+    if (!keys.length) {
+      context = {}
+      return
+    }
+    const next = { ...context }
+    keys.forEach((key) => delete next[key])
+    context = next
+  },
+  getContext: () => ({ ...context }),
+}
+
+export const installConsoleLogger = () => {
+  if (consoleInstalled) return
+  consoleInstalled = true
+  console.debug = logger.debug
+  console.log = logger.info
+  console.info = logger.info
+  console.warn = logger.warn
+  console.error = logger.error
+  console.table = (value?: unknown) => logger.info('Console table', value)
+}

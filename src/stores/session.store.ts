@@ -144,6 +144,11 @@ export const useSessionStore = defineStore('sessions', {
     },
     startDurationTimer(startTime = new Date().toISOString()) {
       if (!this.sessionId) return
+      if (this.interviewStartTime) {
+        this.updateElapsedSeconds()
+        this.ensureDurationInterval()
+        return
+      }
       this.interviewStartTime = startTime
       window.localStorage.setItem(this.durationStorageKey(), startTime)
       this.updateElapsedSeconds()
@@ -152,6 +157,11 @@ export const useSessionStore = defineStore('sessions', {
     resumeDurationTimer(sessionId?: string) {
       const id = sessionId ?? this.sessionId
       if (!id) return
+      if (this.interviewStartTime) {
+        this.updateElapsedSeconds()
+        this.ensureDurationInterval()
+        return
+      }
       const startTime = window.localStorage.getItem(this.durationStorageKey(id))
       if (!startTime) return
       this.interviewStartTime = startTime
