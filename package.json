@@ -1,6 +1,10 @@
 {
   "name": "interview-mate-ai",
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Production desktop client for Interview Mate AI.",
+  "author": {
+    "name": "Interview Mate AI"
+  },
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -10,6 +14,12 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "build:native-stealth": "node-gyp rebuild --directory native/stealth-bridge",
     "build:desktop": "npm run build && node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.json",
+    "build:desktop:prod": "npm run build && node -e \"require('node:fs').rmSync('dist-electron',{recursive:true,force:true})\" && tsc -p tsconfig.electron.prod.json",
+    "pack": "npm run build:desktop:prod && electron-builder --dir",
+    "dist": "npm run build:desktop:prod && electron-builder",
+    "build:win": "npm run build:desktop:prod && electron-builder --win nsis portable",
+    "build:mac": "npm run build:desktop:prod && electron-builder --mac dmg zip",
+    "postinstall": "electron-builder install-app-deps",
     "desktop": "electron .",
     "preview": "vite preview",
     "build-only": "vite build",
@@ -34,6 +44,7 @@
     "@vue/tsconfig": "^0.9.1",
     "concurrently": "^9.2.1",
     "electron": "^40.8.0",
+    "electron-builder": "^26.0.12",
     "npm-run-all2": "^9.0.2",
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.0",
@@ -44,5 +55,71 @@
   },
   "engines": {
     "node": "^22.18.0 || >=24.12.0"
+  },
+  "build": {
+    "appId": "ai.interviewmate.desktop",
+    "productName": "Interview Mate AI",
+    "copyright": "Copyright © 2026 Interview Mate AI",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "native/stealth-bridge/build/Release/*.node",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "native/stealth-bridge/build/Release",
+        "to": "native/stealth-bridge/build/Release",
+        "filter": [
+          "*.node"
+        ]
+      }
+    ],
+    "npmRebuild": true,
+    "asar": true,
+    "asarUnpack": [
+      "native/stealth-bridge/build/Release/*.node"
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": null,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "linux": {
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   }
 }

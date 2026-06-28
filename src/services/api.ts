@@ -47,6 +47,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('interview-mate-user')
       localStorage.removeItem('interview-mate-token')
+      window.dispatchEvent(new Event('interview-mate-auth-invalid'))
 
       if (window.location.pathname !== '/') {
         window.location.assign('/')
@@ -75,6 +76,8 @@ export const api = {
       token: response.data.token,
     }
   },
+  getProfile: async (): Promise<User> =>
+    (await apiClient.get<{ data: User }>('/user/profile')).data.data,
 
   getInterviews: async (): Promise<Interview[]> => {
     return []

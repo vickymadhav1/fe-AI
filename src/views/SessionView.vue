@@ -933,26 +933,12 @@ const restoreStealthMode = async () => {
 const settleInvisibleDuration = async () => {
   if (!sessionStore.interviewStartTime) return
   sessionStore.updateElapsedSeconds()
-  const consumedMinutes =
-    sessionStore.elapsedSeconds > 0 ? Math.ceil(sessionStore.elapsedSeconds / 60) : 0
   const finalDuration = {
     interviewStartTime: sessionStore.interviewStartTime,
     endTime: new Date().toISOString(),
     elapsedSeconds: sessionStore.elapsedSeconds,
-    consumedMinutes,
-    consumedCredits: sessionStore.consumedCredits,
   }
   console.info('[Duration] Interview duration finalized', finalDuration)
-  if (consumedMinutes > 0) {
-    await subscriptionStore.deductMinutes(consumedMinutes).catch((error) => {
-      console.error('[Duration] Could not deduct consumed Invisible minutes', error)
-      uiStore.pushToast({
-        type: 'error',
-        title: 'Could not deduct interview minutes',
-        description: 'Your session duration was recorded locally, but credit deduction failed.',
-      })
-    })
-  }
   sessionStore.stopDurationTimer({ clearPersisted: true })
   subscriptionStore.setInvisibleMode(false)
 }
@@ -1246,6 +1232,20 @@ const stopInterview = async () => {
 const shutdownFromCompanion = async () => {
   console.info('[Interview] Companion requested full shutdown')
   await stopInterviewRuntime()
+  const sessionId = sessionStore.activeSession?.id
+  if (sessionId) {
+    try {
+      await sessionStore.endSession(sessionId)
+      await subscriptionStore.load()
+    } catch (error) {
+      console.error('[Interview] Companion shutdown settlement failed', error)
+      uiStore.pushToast({
+        type: 'error',
+        title: 'Could not save interview',
+        description: 'The interview stopped, but final settlement could not be confirmed.',
+      })
+    }
+  }
   clearCurrentInterviewState()
   uiStore.pushToast({ type: 'info', title: 'Interview stopped from Companion' })
 }
@@ -1256,6 +1256,7 @@ const endSession = async () => {
   await stopInterviewRuntime()
   try {
     await sessionStore.endSession(sessionStore.activeSession.id)
+    await subscriptionStore.load()
     uiStore.pushToast({ type: 'success', title: 'Session ended and saved' })
   } finally {
     endingSession.value = false

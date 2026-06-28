@@ -7,9 +7,12 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { stealthBridge } from './stealth/stealth-bridge.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDevelopment = process.argv.includes('--dev');
-const desktopPort = 47831;
+const isDevelopment = !app.isPackaged && process.argv.includes('--dev');
+let desktopPort = 47831;
 const execFileAsync = promisify(execFile);
+if (!isDevelopment) {
+    app.commandLine.appendSwitch('disable-logging');
+}
 let staticServer = null;
 let mainWindow = null;
 let floatingWindow = null;
@@ -21,6 +24,15 @@ let stealthProtectionEnabled = false;
 let stealthShortcut = 'Alt+Space';
 let tray = null;
 let latestStealthResult = null;
+let companionShutdownResolve = null;
+let companionShutdownTimer = null;
+class IpcSecurityError extends Error {
+    code;
+    constructor(code, message) {
+        super(message);
+        this.code = code;
+    }
+}
 const internalSourcePattern = /interview mate(?: ai)?/i;
 const meetingAppPatterns = [
     { name: 'Microsoft Teams', pattern: /microsoft teams|teams/i },
@@ -262,7 +274,11 @@ const startStaticServer = async () => {
     });
     await new Promise((resolve, reject) => {
         staticServer?.once('error', reject);
-        staticServer?.listen(desktopPort, '127.0.0.1', resolve);
+        staticServer?.listen(0, '127.0.0.1', () => {
+            const address = staticServer?.address();
+            desktopPort = address?.port ?? desktopPort;
+            resolve();
+        });
     });
 };
 const rendererUrl = (route = '') => isDevelopment
@@ -295,6 +311,7 @@ const createFloatingWindow = async () => {
             nodeIntegration: false,
             sandbox: true,
             backgroundThrottling: false,
+            devTools: isDevelopment,
         },
     });
     floatingWindow.setAlwaysOnTop(state.alwaysOnTop, 'floating');
@@ -315,7 +332,6 @@ const createFloatingWindow = async () => {
     return floatingWindow;
 };
 const startCompanion = async () => {
-    latestResult = null;
     const emptyResult = {
         question: '',
         answer: '',
@@ -338,7 +354,7 @@ const startCompanion = async () => {
         });
         return;
     }
-    floatingWindow.webContents.send('floating:result', emptyResult);
+    floatingWindow.webContents.send('floating:result', latestResult ?? emptyResult);
     floatingWindow.show();
     floatingWindow.focus();
 };
@@ -347,6 +363,38 @@ const stopCompanion = () => {
     floatingWindow?.close();
     floatingWindow = null;
 };
+const minimizeCompanion = () => {
+    void persistCompanionState();
+    floatingWindow?.minimize();
+};
+const completeCompanionShutdown = () => {
+    if (companionShutdownTimer) {
+        clearTimeout(companionShutdownTimer);
+        companionShutdownTimer = null;
+    }
+    companionShutdownResolve?.();
+    companionShutdownResolve = null;
+    stopCompanion();
+};
+const requestInterviewShutdown = () => new Promise((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        stopCompanion();
+        resolve();
+        return;
+    }
+    companionShutdownResolve = resolve;
+    if (companionShutdownTimer)
+        clearTimeout(companionShutdownTimer);
+    companionShutdownTimer = setTimeout(() => {
+        console.warn('[Companion] shutdown completion timed out');
+        companionShutdownResolve = null;
+        companionShutdownTimer = null;
+        resolve();
+    }, 20_000);
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('companion:shutdown-requested');
+});
 const getCompanionWindowState = () => {
     if (!floatingWindow || floatingWindow.isDestroyed())
         return null;
@@ -354,6 +402,174 @@ const getCompanionWindowState = () => {
         ...floatingWindow.getBounds(),
         alwaysOnTop: floatingWindow.isAlwaysOnTop(),
         transparency: floatingWindow.getOpacity(),
+    };
+};
+const ipcFailure = (code, message) => ({
+    success: false,
+    code,
+    message,
+});
+const toIpcFailure = (error) => {
+    if (error instanceof IpcSecurityError)
+        return ipcFailure(error.code, error.message);
+    return ipcFailure('IPC_HANDLER_FAILED', 'The IPC request could not be completed.');
+};
+const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+const assertNoArgs = (args) => {
+    if (args.length > 0) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'This IPC channel does not accept arguments.');
+    }
+};
+const assertBoolean = (value, fieldName) => {
+    if (typeof value !== 'boolean') {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `${fieldName} must be a boolean.`);
+    }
+    return value;
+};
+const assertFiniteNumber = (value, fieldName, options = {}) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `${fieldName} must be a finite number.`);
+    }
+    if (options.integer && !Number.isInteger(value)) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `${fieldName} must be an integer.`);
+    }
+    if (options.min !== undefined && value < options.min) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `${fieldName} is below the allowed minimum.`);
+    }
+    if (options.max !== undefined && value > options.max) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `${fieldName} exceeds the allowed maximum.`);
+    }
+    return value;
+};
+const assertShortcut = (value) => {
+    if (typeof value !== 'string') {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'accelerator must be a string.');
+    }
+    const accelerator = value.trim();
+    if (!accelerator || accelerator.length > 80) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'accelerator must be a non-empty shortcut string.');
+    }
+    return accelerator;
+};
+const assertBytes = (value) => {
+    if (!(value instanceof Uint8Array)) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'bytes must be a Uint8Array.');
+    }
+    if (value.byteLength === 0 || value.byteLength > 50 * 1024 * 1024) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'bytes must contain a valid screenshot payload.');
+    }
+    return value;
+};
+const assertAllowedSender = (event, allowedSenders) => {
+    const sender = event.sender;
+    const isMainSender = Boolean(mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents);
+    const isCompanionSender = Boolean(floatingWindow && !floatingWindow.isDestroyed() && sender === floatingWindow.webContents);
+    if ((allowedSenders.includes('main') && isMainSender) ||
+        (allowedSenders.includes('companion') && isCompanionSender)) {
+        return;
+    }
+    throw new IpcSecurityError('FORBIDDEN_SENDER', 'This renderer is not allowed to use this IPC channel.');
+};
+const logIpcRejection = (channel, failure) => {
+    console.warn('[IPC] rejected request', {
+        channel,
+        code: failure.code,
+        message: failure.message,
+    });
+};
+const safeHandle = (channel, allowedSenders, handler) => {
+    ipcMain.handle(channel, async (event, ...args) => {
+        try {
+            assertAllowedSender(event, allowedSenders);
+            return await handler(event, ...args);
+        }
+        catch (error) {
+            const failure = toIpcFailure(error);
+            logIpcRejection(channel, failure);
+            return failure;
+        }
+    });
+};
+const safeOn = (channel, allowedSenders, handler) => {
+    ipcMain.on(channel, (event, ...args) => {
+        void (async () => {
+            try {
+                assertAllowedSender(event, allowedSenders);
+                await handler(event, ...args);
+            }
+            catch (error) {
+                logIpcRejection(channel, toIpcFailure(error));
+            }
+        })();
+    });
+};
+const validateFloatingResult = (value) => {
+    if (!isRecord(value)) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', 'result must be an object.');
+    }
+    const allowedFields = new Set([
+        'question',
+        'answer',
+        'code',
+        'output',
+        'language',
+        'complexity',
+        'confidence',
+        'provider',
+        'screenStatus',
+        'lastCapture',
+        'timestamp',
+        'screenshotPreviewUrl',
+        'interviewStartTime',
+        'elapsedSeconds',
+        'formattedDuration',
+        'remainingSeconds',
+        'remainingMinutes',
+    ]);
+    const unknownField = Object.keys(value).find((key) => !allowedFields.has(key));
+    if (unknownField) {
+        throw new IpcSecurityError('INVALID_PAYLOAD', `Unknown result field: ${unknownField}.`);
+    }
+    const requiredString = (key) => {
+        const field = value[key];
+        if (typeof field !== 'string') {
+            throw new IpcSecurityError('INVALID_PAYLOAD', `${String(key)} must be a string.`);
+        }
+        return field;
+    };
+    const optionalString = (key) => {
+        const field = value[key];
+        if (field === undefined)
+            return undefined;
+        if (typeof field !== 'string') {
+            throw new IpcSecurityError('INVALID_PAYLOAD', `${String(key)} must be a string.`);
+        }
+        return field;
+    };
+    const optionalNumber = (key) => {
+        const field = value[key];
+        if (field === undefined)
+            return undefined;
+        return assertFiniteNumber(field, String(key), { min: 0 });
+    };
+    return {
+        question: requiredString('question'),
+        answer: requiredString('answer'),
+        code: requiredString('code'),
+        output: requiredString('output'),
+        language: requiredString('language'),
+        complexity: requiredString('complexity'),
+        confidence: assertFiniteNumber(value.confidence, 'confidence', { min: 0, max: 1 }),
+        provider: optionalString('provider'),
+        screenStatus: optionalString('screenStatus'),
+        lastCapture: optionalString('lastCapture'),
+        timestamp: requiredString('timestamp'),
+        screenshotPreviewUrl: optionalString('screenshotPreviewUrl'),
+        interviewStartTime: optionalString('interviewStartTime'),
+        elapsedSeconds: optionalNumber('elapsedSeconds'),
+        formattedDuration: optionalString('formattedDuration'),
+        remainingSeconds: optionalNumber('remainingSeconds'),
+        remainingMinutes: optionalNumber('remainingMinutes'),
     };
 };
 const createWindow = () => {
@@ -370,6 +586,7 @@ const createWindow = () => {
             nodeIntegration: false,
             sandbox: true,
             backgroundThrottling: false,
+            devTools: isDevelopment,
         },
     });
     mainWindow = window;
@@ -411,9 +628,16 @@ app.whenReady().then(async () => {
     createWindow();
     createStealthTray();
     registerStealthShortcut(stealthShortcut);
-    ipcMain.handle('floating:get-latest', () => latestResult);
-    ipcMain.handle('meeting:get-active-window', detectActiveMeetingWindow);
-    ipcMain.handle('stealth:restore-windows', () => {
+    safeHandle('floating:get-latest', ['main', 'companion'], (_event, ...args) => {
+        assertNoArgs(args);
+        return latestResult;
+    });
+    safeHandle('meeting:get-active-window', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
+        return detectActiveMeetingWindow();
+    });
+    safeHandle('stealth:restore-windows', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
         restoreStealthWindows();
         const capabilities = stealthBridge.currentPlatformCapabilities();
         return {
@@ -425,9 +649,16 @@ app.whenReady().then(async () => {
             platform: process.platform,
         };
     });
-    ipcMain.handle('stealth:set-capture-protection', async (_event, enabled) => setStealthCaptureProtection(enabled));
-    ipcMain.handle('stealth:register-shortcut', (_event, accelerator) => registerStealthShortcut(accelerator));
-    ipcMain.handle('stealth:get-state', () => {
+    safeHandle('stealth:set-capture-protection', ['main'], async (_event, enabled, ...args) => {
+        assertNoArgs(args);
+        return setStealthCaptureProtection(assertBoolean(enabled, 'enabled'));
+    });
+    safeHandle('stealth:register-shortcut', ['main'], (_event, accelerator, ...args) => {
+        assertNoArgs(args);
+        return registerStealthShortcut(assertShortcut(accelerator));
+    });
+    safeHandle('stealth:get-state', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
         const capabilities = stealthBridge.currentPlatformCapabilities();
         return {
             ...capabilities,
@@ -439,11 +670,12 @@ app.whenReady().then(async () => {
             shortcut: stealthShortcut,
         };
     });
-    ipcMain.handle('invisible:set-content-protection', (_event, enabled) => {
-        invisibleProtectionEnabled = enabled;
+    safeHandle('invisible:set-content-protection', ['main'], (_event, enabled, ...args) => {
+        assertNoArgs(args);
+        invisibleProtectionEnabled = assertBoolean(enabled, 'enabled');
         applyInvisibleProtection();
         const capabilities = stealthBridge.currentPlatformCapabilities();
-        console.info(enabled
+        console.info(invisibleProtectionEnabled
             ? '[Invisible] Content Protection Applied'
             : '[Invisible] Content Protection Removed');
         return {
@@ -454,7 +686,8 @@ app.whenReady().then(async () => {
             warning: capabilities.warning,
         };
     });
-    ipcMain.handle('invisible:get-content-protection', () => {
+    safeHandle('invisible:get-content-protection', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
         const capabilities = stealthBridge.currentPlatformCapabilities();
         return {
             enabled: invisibleProtectionEnabled,
@@ -464,7 +697,8 @@ app.whenReady().then(async () => {
             warning: capabilities.warning,
         };
     });
-    ipcMain.handle('capture:list-sources', async () => {
+    safeHandle('capture:list-sources', ['main'], async (_event, ...args) => {
+        assertNoArgs(args);
         console.log('capture:list-sources CALLED');
         const sources = await desktopCapturer.getSources({
             types: ['screen', 'window'],
@@ -482,15 +716,20 @@ app.whenReady().then(async () => {
             thumbnailDataUrl: source.thumbnail.isEmpty() ? '' : source.thumbnail.toDataURL(),
         }));
     });
-    ipcMain.handle('capture:save-debug', async (_event, bytes, width, height) => {
+    safeHandle('capture:save-debug', ['main'], async (_event, bytes, width, height, ...args) => {
+        assertNoArgs(args);
+        const validBytes = assertBytes(bytes);
+        const validWidth = assertFiniteNumber(width, 'width', { min: 1, max: 10000, integer: true });
+        const validHeight = assertFiniteNumber(height, 'height', { min: 1, max: 10000, integer: true });
         const filePath = debugCapturePath();
         await mkdir(path.dirname(filePath), { recursive: true });
-        await writeFile(filePath, Buffer.from(bytes));
+        await writeFile(filePath, Buffer.from(validBytes));
         console.info('[ScreenCapture] screenshot captured');
-        console.info(`[ScreenCapture] dimensions ${width}x${height}`);
+        console.info(`[ScreenCapture] dimensions ${validWidth}x${validHeight}`);
         return filePath;
     });
-    ipcMain.handle('capture:get-visible-screen', async () => {
+    safeHandle('capture:get-visible-screen', ['main'], async (_event, ...args) => {
+        assertNoArgs(args);
         if (process.platform === 'darwin' &&
             systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
             return { available: false, reason: 'permission-required' };
@@ -524,26 +763,61 @@ app.whenReady().then(async () => {
             sourceName: source.name,
         };
     });
-    ipcMain.on('floating:publish', (_event, result) => {
-        latestResult = result;
+    safeOn('floating:publish', ['main'], (_event, result, ...args) => {
+        assertNoArgs(args);
+        latestResult = validateFloatingResult(result);
+        console.info('[CompanionSync] IPC publish received', {
+            question: latestResult.question,
+            answerLength: latestResult.answer?.length ?? 0,
+            hasCompanionWindow: Boolean(floatingWindow && !floatingWindow.isDestroyed()),
+        });
         void persistLatestResult();
-        floatingWindow?.webContents.send('floating:result', result);
+        floatingWindow?.webContents.send('floating:result', latestResult);
+        console.info('[CompanionSync] IPC update forwarded');
     });
-    ipcMain.on('companion:start', () => void startCompanion());
-    ipcMain.on('companion:end', stopCompanion);
-    ipcMain.handle('companion:get-window-state', getCompanionWindowState);
-    ipcMain.handle('companion:set-always-on-top', (_event, enabled) => {
-        floatingWindow?.setAlwaysOnTop(enabled, 'floating');
+    safeOn('companion:start', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
+        void startCompanion();
+    });
+    safeOn('companion:end', ['main', 'companion'], (event, ...args) => {
+        assertNoArgs(args);
+        if (floatingWindow && event.sender === floatingWindow.webContents) {
+            void requestInterviewShutdown();
+            return;
+        }
+        stopCompanion();
+    });
+    safeOn('companion:minimize', ['main', 'companion'], (_event, ...args) => {
+        assertNoArgs(args);
+        minimizeCompanion();
+    });
+    safeHandle('companion:request-shutdown', ['companion'], (_event, ...args) => {
+        assertNoArgs(args);
+        return requestInterviewShutdown();
+    });
+    safeOn('companion:shutdown-complete', ['main'], (_event, ...args) => {
+        assertNoArgs(args);
+        completeCompanionShutdown();
+    });
+    safeHandle('companion:get-window-state', ['main', 'companion'], (_event, ...args) => {
+        assertNoArgs(args);
+        return getCompanionWindowState();
+    });
+    safeHandle('companion:set-always-on-top', ['main', 'companion'], (_event, enabled, ...args) => {
+        assertNoArgs(args);
+        floatingWindow?.setAlwaysOnTop(assertBoolean(enabled, 'enabled'), 'floating');
         void persistCompanionState();
         return getCompanionWindowState();
     });
-    ipcMain.handle('companion:set-transparency', (_event, value) => {
-        const opacity = Math.max(0.45, Math.min(1, Number(value)));
+    safeHandle('companion:set-transparency', ['main', 'companion'], (_event, value, ...args) => {
+        assertNoArgs(args);
+        const opacity = assertFiniteNumber(value, 'value', { min: 0.45, max: 1 });
         floatingWindow?.setOpacity(opacity);
         void persistCompanionState();
         return getCompanionWindowState();
     });
-    ipcMain.on('floating:copy-code', () => {
+    safeOn('floating:copy-code', ['companion'], (_event, ...args) => {
+        assertNoArgs(args);
         if (latestResult?.code)
             clipboard.writeText(latestResult.code);
     });
@@ -571,4 +845,3 @@ app.on('before-quit', () => {
     }
     staticServer?.close();
 });
-//# sourceMappingURL=main.js.map

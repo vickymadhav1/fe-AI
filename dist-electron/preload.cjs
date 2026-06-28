@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
         publish: (result) => ipcRenderer.send('floating:publish', result),
         start: () => ipcRenderer.send('companion:start'),
         end: () => ipcRenderer.send('companion:end'),
+        minimize: () => ipcRenderer.send('companion:minimize'),
+        requestShutdown: () => ipcRenderer.invoke('companion:request-shutdown'),
         getWindowState: () => ipcRenderer.invoke('companion:get-window-state'),
         setAlwaysOnTop: (enabled) => ipcRenderer.invoke('companion:set-always-on-top', enabled),
         setTransparency: (value) => ipcRenderer.invoke('companion:set-transparency', value),
@@ -36,6 +38,13 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
             ipcRenderer.on('floating:result', listener);
             return () => ipcRenderer.removeListener('floating:result', listener);
         },
+        onShutdownRequested: (callback) => {
+            const listener = async () => {
+                await callback();
+                ipcRenderer.send('companion:shutdown-complete');
+            };
+            ipcRenderer.on('companion:shutdown-requested', listener);
+            return () => ipcRenderer.removeListener('companion:shutdown-requested', listener);
+        },
     },
 });
-//# sourceMappingURL=preload.cjs.map

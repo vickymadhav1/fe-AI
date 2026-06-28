@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { SparklesIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon, ExclamationCircleIcon } from '@heroicons/vue/24/outline'
@@ -10,6 +10,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const error = ref('')
 const googleLoading = ref(false)
+const displayError = computed(() => error.value || authStore.error)
 
 const loginWithGoogle = async () => {
   googleLoading.value = true
@@ -57,9 +58,9 @@ const loginWithGoogle = async () => {
           <h2 class="text-2xl font-black">Welcome back</h2>
           <p class="mt-2 text-sm font-medium text-slate-500">Sign in to continue to your workspace</p>
 
-          <div v-if="error" class="mt-6 flex gap-3 rounded-xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+          <div v-if="displayError" class="mt-6 flex gap-3 rounded-xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-100">
             <ExclamationCircleIcon class="h-5 w-5 shrink-0" />
-            {{ error }}
+            {{ displayError }}
           </div>
 
           <div class="mt-8 space-y-4">

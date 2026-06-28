@@ -9,6 +9,7 @@ import InvisibleSubscriptionView from '../views/InvisibleSubscriptionView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import PaymentView from '../views/PaymentView.vue'
 import SupportView from '../views/SupportView.vue'
+import { useAuthStore } from '@/stores/auth.store'
 
 const routes = [
   {
@@ -76,14 +77,23 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to) => {
-  const hasSession = Boolean(localStorage.getItem('interview-mate-token'))
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+  const hasStoredToken = Boolean(localStorage.getItem('interview-mate-token'))
 
-  if (to.meta.requiresAuth && !hasSession) {
+  if (to.meta.requiresAuth && !hasStoredToken) {
+    authStore.logout()
     return { name: 'login' }
   }
 
-  if (to.name === 'login' && hasSession) {
+  if (to.meta.requiresAuth) {
+    const valid = await authStore.validateStoredSession()
+    if (!valid) return { name: 'login' }
+  }
+
+  if (to.name === 'login' && hasStoredToken) {
+    const valid = await authStore.validateStoredSession()
+    if (!valid) return true
     return { name: 'dashboard' }
   }
 })
