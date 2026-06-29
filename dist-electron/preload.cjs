@@ -65,4 +65,3 @@ contextBridge.exposeInMainWorld('interviewMateDesktop', {
         },
     },
 });
-//# sourceMappingURL=preload.cjs.map

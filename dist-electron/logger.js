@@ -62,4 +62,3 @@ export const installConsoleLogger = () => {
     console.error = logger.error;
     console.table = (value) => logger.info('Console table', value);
 };
-//# sourceMappingURL=logger.js.map

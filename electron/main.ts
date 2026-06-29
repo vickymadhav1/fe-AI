@@ -471,9 +471,9 @@ const createFloatingWindow = async () => {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       backgroundThrottling: false,
-      devTools: isDevelopment,
+      devTools: true,
     },
   })
   enableDevelopmentDevToolsShortcut(floatingWindow)
@@ -807,9 +807,9 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       backgroundThrottling: false,
-      devTools: isDevelopment,
+      devTools: true,
     },
   })
   enableDevelopmentDevToolsShortcut(window)
